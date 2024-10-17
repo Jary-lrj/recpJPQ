@@ -30,12 +30,16 @@ class ItemCode(torch.nn.Module):
         self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
         self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
         self.vals_per_dim = 256
+        self.individual_embedding_size = self.sub_embedding_size
         self.base_type = torch.uint8
         self.item_codes = torch.zeros(
             size=(num_items + 1, self.item_code_bytes), dtype=self.base_type, device=self.device
         )  # trainable?
         self.centroids = torch.nn.Parameter(
             torch.randn(self.item_code_bytes, 256, self.sub_embedding_size, device=self.device)  # (8, 256, 6)
+        )
+        self.individual_embedding = torch.nn.Embedding(
+            num_items + 1, self.individual_embedding_size, padding_idx=num_items
         )
         self.item_codes_strategy = SVDAssignmentStrategy(self.item_code_bytes, num_items, self.device)
         self.sequence_length = sequence_length
@@ -59,7 +63,46 @@ class ItemCode(torch.nn.Module):
         result = input_sub_embeddings_reshaped.reshape(
             batch_size, sequence_length, self.item_code_bytes * self.sub_embedding_size
         )
+        # new
+        individual_embeddings = self.individual_embedding(input_ids)
+        result = torch.cat([result, individual_embeddings], dim=-1)
         return result
+
+    def get_item_embeddings(self, item_ids):
+        """
+        Get embeddings for a list of item IDs.
+
+        Args:
+        item_ids (torch.Tensor): A 1D tensor of item IDs to get embeddings for.
+
+        Returns:
+        torch.Tensor: The combined embeddings (quantized + individual) for the given item IDs.
+        """
+        # Ensure item_ids is on the correct device and is 1D
+        item_ids = item_ids.to(self.device).view(-1)
+        num_items = item_ids.size(0)
+
+        # Get the quantized embeddings
+        input_codes = self.item_codes[item_ids].detach().int()  # (num_items, 8)
+        code_byte_indices = torch.arange(self.item_code_bytes, device=self.device).unsqueeze(0)
+        code_byte_indices = code_byte_indices.expand(num_items, -1)  # (num_items, 8)
+
+        indices = torch.stack([code_byte_indices, input_codes], dim=-1)  # (num_items, 8, 2)
+        quantized_embeddings = self.centroids[indices[:, :, 0], indices[:, :, 1]]  # (num_items, 8, 6)
+        quantized_embeddings = quantized_embeddings.reshape(num_items, -1)  # (num_items, 48)
+
+        # Get the individual embeddings
+        individual_embeddings = self.individual_embedding(item_ids)  # (num_items, 6)
+
+        # Combine the embeddings
+        combined_embeddings = torch.cat(
+            [quantized_embeddings, individual_embeddings], dim=-1
+        )  # (num_items, 54)
+
+        return combined_embeddings
+
+    def get_embedding_size(self):
+        return self.item_code_bytes * self.sub_embedding_size + self.individual_embedding_size
 
 
 # pls use the following self-made multihead attention layer
@@ -78,7 +121,7 @@ class SASRec(torch.nn.Module):
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
         self.item_emb = torch.nn.Embedding(self.item_num + 1, args.hidden_units, padding_idx=0)
-        self.pos_emb = torch.nn.Embedding(args.maxlen + 1, args.hidden_units, padding_idx=0)
+        self.pos_emb = torch.nn.Embedding(args.maxlen + 1, args.hidden_units * 9 // 8, padding_idx=0)
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
 
         self.attention_layernorms = torch.nn.ModuleList()  # to be Q for self-attention
@@ -86,22 +129,24 @@ class SASRec(torch.nn.Module):
         self.forward_layernorms = torch.nn.ModuleList()
         self.forward_layers = torch.nn.ModuleList()
 
-        self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+        self.last_layernorm = torch.nn.LayerNorm(args.hidden_units * 9 // 8, eps=1e-8)
 
         self.pq_m = 8
         self.item_code = ItemCode(self.pq_m, args.hidden_units, item_num, args.maxlen, args.device)
 
         for _ in range(args.num_blocks):
-            new_attn_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+            new_attn_layernorm = torch.nn.LayerNorm(args.hidden_units * 9 // 8, eps=1e-8)
             self.attention_layernorms.append(new_attn_layernorm)
 
-            new_attn_layer = torch.nn.MultiheadAttention(args.hidden_units, args.num_heads, args.dropout_rate)
+            new_attn_layer = torch.nn.MultiheadAttention(
+                args.hidden_units * 9 // 8, args.num_heads, args.dropout_rate
+            )
             self.attention_layers.append(new_attn_layer)
 
-            new_fwd_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
+            new_fwd_layernorm = torch.nn.LayerNorm(args.hidden_units * 9 // 8, eps=1e-8)
             self.forward_layernorms.append(new_fwd_layernorm)
 
-            new_fwd_layer = PointWiseFeedForward(args.hidden_units, args.dropout_rate)
+            new_fwd_layer = PointWiseFeedForward(args.hidden_units * 9 // 8, args.dropout_rate)
             self.forward_layers.append(new_fwd_layer)
 
             # self.pos_sigmoid = torch.nn.Sigmoid()
@@ -168,8 +213,8 @@ class SASRec(torch.nn.Module):
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):  # for training
         log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
 
-        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
-        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        pos_embs = self.item_code(torch.LongTensor(pos_seqs).to(self.dev))
+        neg_embs = self.item_code(torch.LongTensor(neg_seqs).to(self.dev))
 
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
@@ -184,7 +229,9 @@ class SASRec(torch.nn.Module):
 
         final_feat = log_feats[:, -1, :]  # only use last QKV classifier, a waste
 
-        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev))  # (U, I, C)
+        item_embs = self.item_code.get_item_embeddings(
+            torch.LongTensor(item_indices).to(self.dev)
+        )  # (U, I, C)
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 

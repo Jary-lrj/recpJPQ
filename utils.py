@@ -5,6 +5,8 @@ import random
 import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
+import time
+import matplotlib.pyplot as plt
 
 
 def build_index(dataset_name):
@@ -235,3 +237,41 @@ def evaluate_valid(model, dataset, args):
             sys.stdout.flush()
 
     return NDCG / valid_user, HT / valid_user
+
+
+# output loss list to .txt file
+def loss_to_list(loss_list):
+    # Generate a timestamp for the filename
+    timestamp = int(time.time())
+    filename = f"loss_list_{timestamp}.txt"
+
+    # Open the file and write each loss value on a new line
+    with open(filename, "w") as f:
+        for loss in loss_list:
+            f.write(f"{loss}\n")
+
+    return filename
+
+
+def plot_data_from_file(input_file, output_image):
+    # Read data from the file
+    with open(input_file, "r") as f:
+        data = [float(line.strip()) for line in f]
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(data)
+    plt.title("Data from file")
+    plt.xlabel("Index")
+    plt.ylabel("Value")
+    plt.grid(True)
+
+    # Save the plot
+    plt.savefig(output_image)
+    plt.close()
+
+    print(f"Plot saved as {output_image}")
+
+
+if __name__ == "__main__":
+    plot_data_from_file("./loss_list_1727509418.txt", "loss.png")

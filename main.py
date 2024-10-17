@@ -17,10 +17,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", required=True)
 parser.add_argument("--train_dir", required=True)
 parser.add_argument("--batch_size", default=256, type=int)
-parser.add_argument("--lr", default=0.001, type=float)
+parser.add_argument("--lr", default=1e-3, type=float)
 parser.add_argument("--maxlen", default=200, type=int)
-parser.add_argument("--hidden_units", default=512, type=int)
-parser.add_argument("--num_blocks", default=6, type=int)
+parser.add_argument("--hidden_units", default=128, type=int)
+parser.add_argument("--num_blocks", default=2, type=int)
 parser.add_argument("--num_epochs", default=200, type=int)
 parser.add_argument("--num_heads", default=1, type=int)
 parser.add_argument("--dropout_rate", default=0.2, type=float)
@@ -60,6 +60,9 @@ if __name__ == "__main__":
     model = SASRec(usernum, itemnum, args).to(
         args.device
     )  # no ReLU activation in original SASRec implementation?
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"{name}: {param.numel()}")
 
     # initialize item code
     model.item_code.assign_codes(user_train)
@@ -77,6 +80,8 @@ if __name__ == "__main__":
     # model.apply(torch.nn.init.xavier_uniform_)
 
     model.train()  # enable model training
+
+    loss_list = []
 
     epoch_start_idx = 1
     if args.state_dict_path is not None:
@@ -109,6 +114,7 @@ if __name__ == "__main__":
     for epoch in range(epoch_start_idx, args.num_epochs + 1):
         if args.inference_only:
             break  # just to decrease identition
+        avg_loss = 0.0
         for step in range(
             num_batch
         ):  # tqdm(range(num_batch), total=num_batch, ncols=70, leave=False, unit='b'):
@@ -123,13 +129,17 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_emb.parameters():
+            for param in model.item_code.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
-            print(
-                "loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())
-            )  # expected 0.4~0.6 after init few epochs
+            # print(
+            #     "loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())
+            # )  # expected 0.4~0.6 after init few epochs
+            avg_loss += loss.item()  # avg loss in each epoch
+        avg_loss /= num_batch
+        print(f"avg loss in epoch {epoch}: {avg_loss}")
+        loss_list.append(avg_loss)
 
         if epoch % 20 == 0:
             model.eval()
@@ -176,3 +186,6 @@ if __name__ == "__main__":
     f.close()
     sampler.close()
     print("Done")
+
+    # output loss
+    loss_to_list(loss_list)
