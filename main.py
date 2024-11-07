@@ -15,6 +15,8 @@ def str2bool(s):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", required=True)
+parser.add_argument("--segment", default=8, type=int, required=True)
+parser.add_argument("--type", default="normal", type=str, required=True)
 parser.add_argument("--train_dir", required=True)
 parser.add_argument("--batch_size", default=256, type=int)
 parser.add_argument("--lr", default=1e-3, type=float)
@@ -189,13 +191,17 @@ if __name__ == "__main__":
                 args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
-            # save item embeddings
+            # save item embeddings with args.type, args.segment, and unique timestamp
             item_embeddings = []
             for i in range(itemnum):
                 item_embeddings.append(model.item_code.get_item_embedding(i).to("cpu"))
             item_embeddings.append(torch.zeros(args.hidden_units))
             item_embeddings_torch = torch.stack(item_embeddings, dim=0)
-            torch.save(item_embeddings_torch, os.path.join("item_embeddings.pth"))
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            if not os.path.isdir("item_embeddings"):
+                os.makedirs("item_embeddings")
+            fname = f"item_embeddings_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.pth"
+            torch.save(item_embeddings_torch, os.path.join("item_embeddings", fname))
 
     f.close()
     sampler.close()
@@ -204,4 +210,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     plt.plot(loss_list)
-    plt.savefig("loss.png")
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    if not os.path.isdir("loss_fig"):
+        os.makedirs("loss_fig")
+    fname = f"loss_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png"
+    plt.savefig(os.path.join("loss_fig", fname))
