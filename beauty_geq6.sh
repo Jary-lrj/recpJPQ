@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0,1,2,3,4 python main.py --dataset=beauty_geq6 --num_epochs=200 --train_dir=default --maxlen=200 --dropout_rate=0.2 --device=cuda
