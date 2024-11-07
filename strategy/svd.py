@@ -1,5 +1,5 @@
 import torch
-from torch.sparse import FloatTensor
+import numpy as np
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.decomposition import TruncatedSVD
 from .centroid_strategy import CentroidAssignmentStragety
@@ -20,11 +20,11 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
         indices = torch.LongTensor([rows, cols]).to(self.device)
         values = torch.FloatTensor(vals).to(self.device)
         shape = (len(train_users), self.num_items + 1)
-        matr = FloatTensor(indices, values, shape).to(self.device)
+        matr = torch.sparse_coo_tensor(indices, values, shape).to(self.device)
 
         print("fitting svd for initial centroids assignments")
         svd = TruncatedSVD(n_components=self.item_code_bytes)
-        svd.fit(matr.cpu().to_dense().numpy())  # SVD still uses NumPy
+        svd.fit(matr.cpu().to_dense().numpy())
         item_embeddings = torch.from_numpy(svd.components_).to(self.device)
 
         assignments = []
@@ -44,4 +44,5 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
             component_assignments = discretizer.fit_transform(ith_component).astype("uint8")[:, 0]
             assignments.append(torch.from_numpy(component_assignments).to(self.device))
 
+        print("KBinsDiscretizer done")
         return torch.stack(assignments).t()

@@ -17,10 +17,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", required=True)
 parser.add_argument("--train_dir", required=True)
 parser.add_argument("--batch_size", default=256, type=int)
-parser.add_argument("--lr", default=0.001, type=float)
+parser.add_argument("--lr", default=1e-3, type=float)
 parser.add_argument("--maxlen", default=200, type=int)
-parser.add_argument("--hidden_units", default=512, type=int)
-parser.add_argument("--num_blocks", default=6, type=int)
+parser.add_argument("--hidden_units", default=400, type=int)
+parser.add_argument("--num_blocks", default=2, type=int)
 parser.add_argument("--num_epochs", default=200, type=int)
 parser.add_argument("--num_heads", default=1, type=int)
 parser.add_argument("--dropout_rate", default=0.2, type=float)
@@ -60,6 +60,10 @@ if __name__ == "__main__":
     model = SASRec(usernum, itemnum, args).to(
         args.device
     )  # no ReLU activation in original SASRec implementation?
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"{name}: {param.numel()}")
 
     # initialize item code
     model.item_code.assign_codes(user_train)
@@ -106,9 +110,13 @@ if __name__ == "__main__":
     best_test_ndcg, best_test_hr = 0.0, 0.0
     T = 0.0
     t0 = time.time()
+
+    loss_list = []
+
     for epoch in range(epoch_start_idx, args.num_epochs + 1):
         if args.inference_only:
             break  # just to decrease identition
+        avg_loss = 0.0
         for step in range(
             num_batch
         ):  # tqdm(range(num_batch), total=num_batch, ncols=70, leave=False, unit='b'):
@@ -123,21 +131,28 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_emb.parameters():
+            for param in model.item_code.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
-            print(
-                "loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())
-            )  # expected 0.4~0.6 after init few epochs
+            avg_loss += loss.item()  # avg loss in each epoch
+
+        avg_loss /= num_batch
+        print(f"avg loss in epoch {epoch}: {avg_loss}")
+        loss_list.append(avg_loss)
 
         if epoch % 20 == 0:
             model.eval()
             t1 = time.time() - t0
             T += t1
             print("Evaluating", end="")
+            # t_train = evaluate_all(model, dataset, args, "train")
             t_test = evaluate(model, dataset, args)
             t_valid = evaluate_valid(model, dataset, args)
+            # print(
+            #     "epoch:%d, time: %f(s), train (NDCG@10: %.4f, HR@10: %.4f), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
+            #     % (epoch, T, t_train[0], t_train[1], t_valid[0], t_valid[1], t_test[0], t_test[1])
+            # )
             print(
                 "epoch:%d, time: %f(s), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
                 % (epoch, T, t_valid[0], t_valid[1], t_test[0], t_test[1])
@@ -159,7 +174,9 @@ if __name__ == "__main__":
                     epoch, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen
                 )
                 torch.save(model.state_dict(), os.path.join(folder, fname))
-
+            print(
+                f"Current best result: value_NDCG {best_val_ndcg}, value_HR {best_val_hr}, test_NDCG {best_test_ndcg}, test_HR {best_test_hr}"
+            )
             f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + "\n")
             f.flush()
             t0 = time.time()
@@ -172,7 +189,19 @@ if __name__ == "__main__":
                 args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
+            # save item embeddings
+            item_embeddings = []
+            for i in range(itemnum):
+                item_embeddings.append(model.item_code.get_item_embedding(i).to("cpu"))
+            item_embeddings.append(torch.zeros(args.hidden_units))
+            item_embeddings_torch = torch.stack(item_embeddings, dim=0)
+            torch.save(item_embeddings_torch, os.path.join("item_embeddings.pth"))
 
     f.close()
     sampler.close()
     print("Done")
+
+    import matplotlib.pyplot as plt
+
+    plt.plot(loss_list)
+    plt.savefig("loss.png")

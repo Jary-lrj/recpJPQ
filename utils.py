@@ -37,7 +37,7 @@ def sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_que
 
         # uid = np.random.randint(1, usernum + 1)
         while len(user_train[uid]) <= 1:
-            user = np.random.randint(1, usernum + 1)
+            uid = np.random.randint(1, usernum + 1)
 
         seq = np.zeros([maxlen], dtype=np.int32)
         pos = np.zeros([maxlen], dtype=np.int32)
@@ -235,3 +235,77 @@ def evaluate_valid(model, dataset, args):
             sys.stdout.flush()
 
     return NDCG / valid_user, HT / valid_user
+
+
+def evaluate_all(model, dataset, args, eval_set="test"):
+    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+    NDCG = 0.0
+    HT = 0.0
+    valid_user = 0.0
+
+    if usernum > 10000:
+        users = random.sample(range(1, usernum + 1), 10000)
+    else:
+        users = range(1, usernum + 1)
+
+    for u in users:
+        if eval_set == "train":
+            if len(train[u]) < 1:
+                continue
+            target_set = train[u]
+            target_item = target_set[-1]
+        elif eval_set == "valid":
+            if len(train[u]) < 1 or len(valid[u]) < 1:
+                continue
+            target_set = valid[u]
+            target_item = target_set[0]
+        elif eval_set == "test":
+            if len(train[u]) < 1 or len(test[u]) < 1:
+                continue
+            target_set = test[u]
+            target_item = target_set[0]
+        else:
+            raise ValueError("eval_set must be one of 'train', 'valid', or 'test'")
+
+        seq = np.zeros([args.maxlen], dtype=np.int32)
+        idx = args.maxlen - 1
+        if eval_set == "test":
+            seq[idx] = valid[u][0]
+            idx -= 1
+        for i in reversed(train[u]):
+            seq[idx] = i
+            idx -= 1
+            if idx == -1:
+                break
+
+        rated = set(train[u])
+        rated.add(0)
+        item_idx = [target_item]
+        for _ in range(100):
+            t = np.random.randint(1, itemnum + 1)
+            while t in rated:
+                t = np.random.randint(1, itemnum + 1)
+            item_idx.append(t)
+
+        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = predictions[0]  # - for 1st argsort DESC
+
+        rank = predictions.argsort().argsort()[0].item()
+
+        valid_user += 1
+
+        if rank < 10:
+            NDCG += 1 / np.log2(rank + 2)
+            HT += 1
+        if valid_user % 100 == 0:
+            print(".", end="")
+            sys.stdout.flush()
+
+    return NDCG / valid_user, HT / valid_user
+
+
+def check_unique_item(tensor):
+    unique_rows = torch.unique(tensor, dim=0)
+    num_duplicates = tensor.size(0) - unique_rows.size(0)
+    return num_duplicates

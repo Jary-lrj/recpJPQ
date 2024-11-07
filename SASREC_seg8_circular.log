@@ -1,0 +1,269 @@
+nohup: ignoring input
+average sequence length: 5.94
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (2) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (7) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (39) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (155) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (58) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (44) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (31) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+/root/autodl-tmp/users/liruijie/anaconda3/envs/VimCnnTrans/lib/python3.10/site-packages/sklearn/base.py:1152: ConvergenceWarning: Number of distinct clusters (154) found smaller than n_clusters (256). Possibly due to duplicate points in X.
+  return fit_method(estimator, *args, **kwargs)
+Duplicate Rows: 0
+item_emb.weight: 4840000
+pos_emb.weight: 80400
+attention_layernorms.0.weight: 400
+attention_layernorms.0.bias: 400
+attention_layernorms.1.weight: 400
+attention_layernorms.1.bias: 400
+attention_layers.0.in_proj_weight: 480000
+attention_layers.0.in_proj_bias: 1200
+attention_layers.0.out_proj.weight: 160000
+attention_layers.0.out_proj.bias: 400
+attention_layers.1.in_proj_weight: 480000
+attention_layers.1.in_proj_bias: 1200
+attention_layers.1.out_proj.weight: 160000
+attention_layers.1.out_proj.bias: 400
+forward_layernorms.0.weight: 400
+forward_layernorms.0.bias: 400
+forward_layernorms.1.weight: 400
+forward_layernorms.1.bias: 400
+forward_layers.0.conv1.weight: 160000
+forward_layers.0.conv1.bias: 400
+forward_layers.0.conv2.weight: 160000
+forward_layers.0.conv2.bias: 400
+forward_layers.1.conv1.weight: 160000
+forward_layers.1.conv1.bias: 400
+forward_layers.1.conv2.weight: 160000
+forward_layers.1.conv2.bias: 400
+last_layernorm.weight: 400
+last_layernorm.bias: 400
+item_code.centroids: 102400
+avg loss in epoch 1: 1.238065853714943
+avg loss in epoch 2: 1.1854175451126965
+avg loss in epoch 3: 1.1744827899065884
+avg loss in epoch 4: 1.1619285304437985
+avg loss in epoch 5: 1.1638228933919559
+avg loss in epoch 6: 1.1604220216924495
+avg loss in epoch 7: 1.1535735780542546
+avg loss in epoch 8: 1.153169404376637
+avg loss in epoch 9: 1.147554258053953
+avg loss in epoch 10: 1.1399605138735338
+avg loss in epoch 11: 1.1432335688309236
+avg loss in epoch 12: 1.1421564614230937
+avg loss in epoch 13: 1.139152396808971
+avg loss in epoch 14: 1.1404966075312009
+avg loss in epoch 15: 1.1338015713474967
+avg loss in epoch 16: 1.129083426161246
+avg loss in epoch 17: 1.1341448060490869
+avg loss in epoch 18: 1.1252662458203055
+avg loss in epoch 19: 1.1229167025197635
+avg loss in epoch 20: 1.1266680346293882
+Evaluating....................................................................................................................................................................................................epoch:20, time: 819.977458(s), valid (NDCG@10: 0.2418, HR@10: 0.3872), test (NDCG@10: 0.2430, HR@10: 0.3952)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 21: 1.1215800602327695
+avg loss in epoch 22: 1.1207633993842385
+avg loss in epoch 23: 1.122159780426459
+avg loss in epoch 24: 1.1133268109776757
+avg loss in epoch 25: 1.1140994781797582
+avg loss in epoch 26: 1.1138395071029663
+avg loss in epoch 27: 1.1110675917430357
+avg loss in epoch 28: 1.1059976301409982
+avg loss in epoch 29: 1.1118306151845239
+avg loss in epoch 30: 1.1038286618211053
+avg loss in epoch 31: 1.103876613757827
+avg loss in epoch 32: 1.1083613620562986
+avg loss in epoch 33: 1.0996060141108253
+avg loss in epoch 34: 1.0993276590650731
+avg loss in epoch 35: 1.0978377353061328
+avg loss in epoch 36: 1.0894528871232814
+avg loss in epoch 37: 1.091755518859083
+avg loss in epoch 38: 1.0982175306840376
+avg loss in epoch 39: 1.0883025648919018
+avg loss in epoch 40: 1.0894512967629866
+Evaluating....................................................................................................................................................................................................epoch:40, time: 1597.197430(s), valid (NDCG@10: 0.2363, HR@10: 0.3782), test (NDCG@10: 0.2406, HR@10: 0.3948)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 41: 1.090501453388821
+avg loss in epoch 42: 1.0834391794421456
+avg loss in epoch 43: 1.0818553268909454
+avg loss in epoch 44: 1.0871763256463138
+avg loss in epoch 45: 1.081052832982757
+avg loss in epoch 46: 1.0789504511789842
+avg loss in epoch 47: 1.081198289990425
+avg loss in epoch 48: 1.0748206945982846
+avg loss in epoch 49: 1.0772307135842063
+avg loss in epoch 50: 1.0784646435217424
+avg loss in epoch 51: 1.0731742558154194
+avg loss in epoch 52: 1.0684720250693234
+avg loss in epoch 53: 1.071618765592575
+avg loss in epoch 54: 1.0629415783015164
+avg loss in epoch 55: 1.066450372338295
+avg loss in epoch 56: 1.0673529695380817
+avg loss in epoch 57: 1.06477528675036
+avg loss in epoch 58: 1.067297794602134
+avg loss in epoch 59: 1.0670286430553957
+avg loss in epoch 60: 1.0627171004360372
+Evaluating....................................................................................................................................................................................................epoch:60, time: 2336.135438(s), valid (NDCG@10: 0.2383, HR@10: 0.3864), test (NDCG@10: 0.2400, HR@10: 0.3893)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 61: 1.0591228076002814
+avg loss in epoch 62: 1.0649229491298848
+avg loss in epoch 63: 1.0601501302285627
+avg loss in epoch 64: 1.054140719500455
+avg loss in epoch 65: 1.0582902533086864
+avg loss in epoch 66: 1.058709871362556
+avg loss in epoch 67: 1.0516802844676105
+avg loss in epoch 68: 1.0542786832560191
+avg loss in epoch 69: 1.0558297220956196
+avg loss in epoch 70: 1.053500164638866
+avg loss in epoch 71: 1.0552260780876332
+avg loss in epoch 72: 1.0510617359118029
+avg loss in epoch 73: 1.0493784709410234
+avg loss in epoch 74: 1.0535760542208499
+avg loss in epoch 75: 1.0502075336196206
+avg loss in epoch 76: 1.0451359823346138
+avg loss in epoch 77: 1.0500999059189449
+avg loss in epoch 78: 1.0470665029504083
+avg loss in epoch 79: 1.0433985028754582
+avg loss in epoch 80: 1.0456157462163405
+Evaluating....................................................................................................................................................................................................epoch:80, time: 3029.185380(s), valid (NDCG@10: 0.2314, HR@10: 0.3802), test (NDCG@10: 0.2381, HR@10: 0.3874)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 81: 1.0441043972969055
+avg loss in epoch 82: 1.0417839728973128
+avg loss in epoch 83: 1.0424145731058987
+avg loss in epoch 84: 1.0432495346123523
+avg loss in epoch 85: 1.03861411457712
+avg loss in epoch 86: 1.038827802647244
+avg loss in epoch 87: 1.0432282652367244
+avg loss in epoch 88: 1.0382923422889276
+avg loss in epoch 89: 1.037652923302217
+avg loss in epoch 90: 1.0366159840063616
+avg loss in epoch 91: 1.037637818266045
+avg loss in epoch 92: 1.0350884835828433
+avg loss in epoch 93: 1.036521315574646
+avg loss in epoch 94: 1.0328660397367044
+avg loss in epoch 95: 1.0325110392137007
+avg loss in epoch 96: 1.0355371677062728
+avg loss in epoch 97: 1.0320174802433362
+avg loss in epoch 98: 1.030074581503868
+avg loss in epoch 99: 1.025606788017533
+avg loss in epoch 100: 1.028766237876632
+Evaluating....................................................................................................................................................................................................epoch:100, time: 3691.791258(s), valid (NDCG@10: 0.2281, HR@10: 0.3687), test (NDCG@10: 0.2314, HR@10: 0.3791)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 101: 1.0264483785087413
+avg loss in epoch 102: 1.0309968475591054
+avg loss in epoch 103: 1.0334246808832341
+avg loss in epoch 104: 1.0301074175672098
+avg loss in epoch 105: 1.028010625053536
+avg loss in epoch 106: 1.0286442468112165
+avg loss in epoch 107: 1.029546126045964
+avg loss in epoch 108: 1.0248926417394117
+avg loss in epoch 109: 1.0281623859297147
+avg loss in epoch 110: 1.0257822546091946
+avg loss in epoch 111: 1.025124929845333
+avg loss in epoch 112: 1.0238259922374378
+avg loss in epoch 113: 1.0268967625769703
+avg loss in epoch 114: 1.0200751586393877
+avg loss in epoch 115: 1.023010110313242
+avg loss in epoch 116: 1.024928942322731
+avg loss in epoch 117: 1.0213099806146189
+avg loss in epoch 118: 1.0244179022583095
+avg loss in epoch 119: 1.01795302873308
+avg loss in epoch 120: 1.0219678858464414
+Evaluating....................................................................................................................................................................................................epoch:120, time: 4282.676471(s), valid (NDCG@10: 0.2330, HR@10: 0.3755), test (NDCG@10: 0.2291, HR@10: 0.3785)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 121: 1.0214742090214382
+avg loss in epoch 122: 1.0191375985741615
+avg loss in epoch 123: 1.0160274404016407
+avg loss in epoch 124: 1.0186978490515188
+avg loss in epoch 125: 1.017189551483501
+avg loss in epoch 126: 1.016371601684527
+avg loss in epoch 127: 1.0186707770282573
+avg loss in epoch 128: 1.0164492604407398
+avg loss in epoch 129: 1.017122396691279
+avg loss in epoch 130: 1.0147990306670016
+avg loss in epoch 131: 1.0140441954135895
+avg loss in epoch 132: 1.0127877057953314
+avg loss in epoch 133: 1.0155085826461965
+avg loss in epoch 134: 1.0170810933817516
+avg loss in epoch 135: 1.0143982016227462
+avg loss in epoch 136: 1.0188092839988796
+avg loss in epoch 137: 1.014476442201571
+avg loss in epoch 138: 1.0131266618316823
+avg loss in epoch 139: 1.0192350643602284
+avg loss in epoch 140: 1.0136470313776622
+Evaluating....................................................................................................................................................................................................epoch:140, time: 4863.416020(s), valid (NDCG@10: 0.2245, HR@10: 0.3737), test (NDCG@10: 0.2227, HR@10: 0.3818)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 141: 1.0084600631486287
+avg loss in epoch 142: 1.0159986493262378
+avg loss in epoch 143: 1.0112982825799421
+avg loss in epoch 144: 1.0107093778523533
+avg loss in epoch 145: 1.0211878046393394
+avg loss in epoch 146: 1.0117578933184797
+avg loss in epoch 147: 1.0101059966466643
+avg loss in epoch 148: 1.017899645323103
+avg loss in epoch 149: 1.007307694716887
+avg loss in epoch 150: 1.007452203468843
+avg loss in epoch 151: 1.015189292755994
+avg loss in epoch 152: 1.0064659762111576
+avg loss in epoch 153: 1.0101138786836104
+avg loss in epoch 154: 1.0148858082565395
+avg loss in epoch 155: 1.0054400658065623
+avg loss in epoch 156: 1.0054428110068494
+avg loss in epoch 157: 1.013214372098446
+avg loss in epoch 158: 1.001910070126707
+avg loss in epoch 159: 1.0059548596089536
+avg loss in epoch 160: 1.009291916408322
+Evaluating...................................................................................................................................................................................................epoch:160, time: 5437.106796(s), valid (NDCG@10: 0.2206, HR@10: 0.3654), test (NDCG@10: 0.2223, HR@10: 0.3716)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 161: 1.0055136145515875
+avg loss in epoch 162: 1.0070588107813487
+avg loss in epoch 163: 1.0111997500061989
+avg loss in epoch 164: 1.0037437189709058
+avg loss in epoch 165: 1.0050471465695987
+avg loss in epoch 166: 1.0120942253958096
+avg loss in epoch 167: 0.9997083361853253
+avg loss in epoch 168: 1.0076699710705064
+avg loss in epoch 169: 1.0053991729562932
+avg loss in epoch 170: 1.0015240785750477
+avg loss in epoch 171: 1.003419773822481
+avg loss in epoch 172: 1.0048033744096756
+avg loss in epoch 173: 1.0027500235221602
+avg loss in epoch 174: 1.001433245160363
+avg loss in epoch 175: 1.0078166581012986
+avg loss in epoch 176: 0.9994855109940876
+avg loss in epoch 177: 1.0017128105867992
+avg loss in epoch 178: 1.0102523511106318
+avg loss in epoch 179: 0.9994751431725242
+avg loss in epoch 180: 0.9993528710170225
+Evaluating...................................................................................................................................................................................................epoch:180, time: 6006.417225(s), valid (NDCG@10: 0.2225, HR@10: 0.3682), test (NDCG@10: 0.2217, HR@10: 0.3732)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+avg loss in epoch 181: 1.0071023526516827
+avg loss in epoch 182: 1.0052147229964083
+avg loss in epoch 183: 1.0016130073504015
+avg loss in epoch 184: 1.0047808777202258
+avg loss in epoch 185: 1.0001208436760036
+avg loss in epoch 186: 0.9968914125453342
+avg loss in epoch 187: 1.001624840904366
+avg loss in epoch 188: 0.9976757940920916
+avg loss in epoch 189: 1.000275964086706
+avg loss in epoch 190: 1.0031836981123143
+avg loss in epoch 191: 1.0014123252846978
+avg loss in epoch 192: 0.9994365762580525
+avg loss in epoch 193: 0.9978501471606168
+avg loss in epoch 194: 1.0007891485636884
+avg loss in epoch 195: 0.9992245943708853
+avg loss in epoch 196: 1.005134370516647
+avg loss in epoch 197: 0.998021899299188
+avg loss in epoch 198: 0.9959765977480195
+avg loss in epoch 199: 0.9985615441744978
+avg loss in epoch 200: 0.9983273094350641
+Evaluating....................................................................................................................................................................................................epoch:200, time: 6574.653946(s), valid (NDCG@10: 0.2223, HR@10: 0.3636), test (NDCG@10: 0.2283, HR@10: 0.3792)
+Current best result: value_NDCG 0.24175890616165716, value_HR 0.3872084733679601, test_NDCG 0.24303449847331363, test_HR 0.39518514740385596
+Done

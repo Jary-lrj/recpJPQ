@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=3,4 python main.py --dataset=Beauty --train_dir=default --maxlen=50 --dropout_rate=0.2 --device=cuda
