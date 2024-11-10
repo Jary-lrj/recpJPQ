@@ -45,6 +45,7 @@ class ItemCode(torch.nn.Module):
         super(ItemCode, self).__init__()
         self.device = device
         self.pq_m = pq_m  # 8
+        self.embedding_size = embedding_size
         self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
         self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
         self.vals_per_dim = 256
@@ -55,6 +56,7 @@ class ItemCode(torch.nn.Module):
         self.centroids = torch.nn.Parameter(
             torch.randn(self.item_code_bytes, 256, self.sub_embedding_size, device=self.device)  # (8, 256, 6)
         )
+        self.ZERO_CODE = 256
         self.n_centroids = [256] * self.pq_m
         self.item_codes_strategy = SVDAssignmentStrategy(self.item_code_bytes, num_items, self.device)
         self.sequence_length = sequence_length
@@ -70,16 +72,32 @@ class ItemCode(torch.nn.Module):
     #     reshaped_embeddings = item_embeddings.reshape(
     #         self.num_items + 1, self.item_code_bytes, self.sub_embedding_size
     #     )
-    #     n_centroids = self.n_centroids
+    #     # Detecting zero vectors
+    #     zero_vectors_mask = torch.all(torch.all(reshaped_embeddings == 0, dim=2), dim=1)
     #     for i in range(self.item_code_bytes):
-    #         subspace_data = reshaped_embeddings[:, i, :]
-    #         kmeans = KMeans(n_init=10, n_clusters=n_centroids[i], random_state=42)
-    #         cluster_labels = kmeans.fit_predict(subspace_data)
-    #         self.item_codes[:, i] = torch.from_numpy(cluster_labels.astype(np.int32)).to(self.device)
-    #         centers = torch.from_numpy(kmeans.cluster_centers_).float()
+    #         subspace_data = reshaped_embeddings[:, i, :].cpu().numpy()
+    #         # Clustering non-zero vectors
+    #         non_zero_mask = ~zero_vectors_mask
+    #         non_zero_data = subspace_data[non_zero_mask]
+    #         if len(non_zero_data) > 0:
+    #             kmeans = KMeans(n_init=10, n_clusters=self.n_centroids[i], random_state=42)
+    #             kmeans.fit(non_zero_data)
+    #             # Assign codes to non-zero vectors
+    #             cluster_labels = np.zeros(len(subspace_data), dtype=np.int32)
+    #             cluster_labels[non_zero_mask] = kmeans.predict(subspace_data[non_zero_mask])
+    #             # Assigning a special value to the zero vector, here we set it as 256, because the codebook has a range of 0-255
+    #             cluster_labels[zero_vectors_mask] = self.ZERO_CODE
+    #             # Update centroids and codes
+    #             self.item_codes[:, i] = torch.from_numpy(cluster_labels).to(self.device)
+    #             centers = torch.from_numpy(kmeans.cluster_centers_).float()
+    #             self.centroids.data[i] = centers.to(self.device)
+    #         else:
+    #             # If all zero vectors, all encodings are set to special values
+    #             self.item_codes[:, i] = self.ZERO_CODE
 
-    #         self.centroids.data[i] = centers.to(self.device)
     #     print(f"Duplicate Rows: {check_unique_item(self.centroids)}")
+    #     print(f"Assign Done. {self.item_codes[0]}")
+    #     print(f"Embedding of Item 0: {self.get_item_embedding(0)}")
 
     # # Hierarchical clustering-based method
     # def assign_codes(self, item_embeddings):
@@ -697,12 +715,19 @@ class ItemCode(torch.nn.Module):
         )
         return result
 
-    def get_item_embedding(self, item_id):
-        with torch.no_grad():
-            item_code = self.item_codes[item_id].detach().int()
-            indices = torch.stack([torch.arange(self.item_code_bytes, device=self.device), item_code], dim=-1)
-            item_embedding = self.centroids[indices[:, 0], indices[:, 1]]
-            return item_embedding.reshape(-1)
+    def get_item_embedding(self, item_idx):
+        codes = self.item_codes[item_idx]
+        if torch.all(codes == self.ZERO_CODE):
+            return torch.zeros(self.embedding_size, device=self.device)
+        embeddings = []
+        for i in range(self.item_code_bytes):
+            code = codes[i]
+            if code == self.ZERO_CODE:
+                embedding = torch.zeros(self.sub_embedding_size, device=self.device)
+            else:
+                embedding = self.centroids[i][code]
+            embeddings.append(embedding)
+        return torch.cat(embeddings)
 
 
 # pls use the following self-made multihead attention layer
@@ -731,13 +756,13 @@ class SASRec(torch.nn.Module):
 
         self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
 
-        self.pq_m = 8
-        # self.pretrain_embeddings_padding_type = "normal_random"
+        # self.pq_m = args.segment
+        # self.pretrain_embeddings_padding_type = args.type
         # self.dataset_name = "beauty"
         # self.pretrain_embeddings = torch.load(
         #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.pretrain_embeddings_padding_type}.pt"
         # )
-        self.item_code = ItemCode(self.pq_m, args.hidden_units, item_num, args.maxlen, args.device)
+        # self.item_code = ItemCode(self.pq_m, args.hidden_units, item_num, args.maxlen, args.device)
         # self.item_code.assign_codes(self.pretrain_embeddings)
 
         for _ in range(args.num_blocks):
@@ -756,40 +781,11 @@ class SASRec(torch.nn.Module):
             # self.pos_sigmoid = torch.nn.Sigmoid()
             # self.neg_sigmoid = torch.nn.Sigmoid()
 
-    def log2feats(
-        self, log_seqs
-    ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
-        seqs = self.item_code(torch.LongTensor(log_seqs).to(self.dev))  # (256, 200) -> (256, 200, 48)
-        seqs *= (self.pq_m * 50) ** 0.5
-        poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
-        # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
-        poss *= log_seqs != 0
-        seqs += self.pos_emb(torch.LongTensor(poss).to(self.dev))
-        seqs = self.emb_dropout(seqs)
-
-        tl = seqs.shape[1]  # time dim len for enforce causality
-        attention_mask = ~torch.tril(torch.ones((tl, tl), dtype=torch.bool, device=self.dev))
-
-        for i in range(len(self.attention_layers)):
-            seqs = torch.transpose(seqs, 0, 1)
-            Q = self.attention_layernorms[i](seqs)
-            mha_outputs, _ = self.attention_layers[i](Q, seqs, seqs, attn_mask=attention_mask)
-            # need_weights=False) this arg do not work?
-            seqs = Q + mha_outputs
-            seqs = torch.transpose(seqs, 0, 1)
-
-            seqs = self.forward_layernorms[i](seqs)
-            seqs = self.forward_layers[i](seqs)
-
-        log_feats = self.last_layernorm(seqs)  # (U, T, C) -> (U, -1, C)
-
-        return log_feats
-
     # def log2feats(
     #     self, log_seqs
     # ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
-    #     seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
-    #     seqs *= self.item_emb.embedding_dim**0.5
+    #     seqs = self.item_code(torch.LongTensor(log_seqs).to(self.dev))  # (256, 200) -> (256, 200, 48)
+    #     seqs *= (self.pq_m * 50) ** 0.5
     #     poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
     #     # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
     #     poss *= log_seqs != 0
@@ -814,25 +810,40 @@ class SASRec(torch.nn.Module):
 
     #     return log_feats
 
-    # def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):  # for training
-    #     log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
+    def log2feats(
+        self, log_seqs
+    ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
+        seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
+        seqs *= self.item_emb.embedding_dim**0.5
+        poss = np.tile(np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
+        # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
+        poss *= log_seqs != 0
+        seqs += self.pos_emb(torch.LongTensor(poss).to(self.dev))
+        seqs = self.emb_dropout(seqs)
 
-    #     pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
-    #     neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+        tl = seqs.shape[1]  # time dim len for enforce causality
+        attention_mask = ~torch.tril(torch.ones((tl, tl), dtype=torch.bool, device=self.dev))
 
-    #     pos_logits = (log_feats * pos_embs).sum(dim=-1)
-    #     neg_logits = (log_feats * neg_embs).sum(dim=-1)
+        for i in range(len(self.attention_layers)):
+            seqs = torch.transpose(seqs, 0, 1)
+            Q = self.attention_layernorms[i](seqs)
+            mha_outputs, _ = self.attention_layers[i](Q, seqs, seqs, attn_mask=attention_mask)
+            # need_weights=False) this arg do not work?
+            seqs = Q + mha_outputs
+            seqs = torch.transpose(seqs, 0, 1)
 
-    #     # pos_pred = self.pos_sigmoid(pos_logits)
-    #     # neg_pred = self.neg_sigmoid(neg_logits)
+            seqs = self.forward_layernorms[i](seqs)
+            seqs = self.forward_layers[i](seqs)
 
-    #     return pos_logits, neg_logits  # pos_pred, neg_pred
+        log_feats = self.last_layernorm(seqs)  # (U, T, C) -> (U, -1, C)
+
+        return log_feats
 
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):  # for training
         log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
 
-        pos_embs = self.item_code(torch.LongTensor(pos_seqs).to(self.dev))
-        neg_embs = self.item_code(torch.LongTensor(neg_seqs).to(self.dev))
+        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
 
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
@@ -842,31 +853,45 @@ class SASRec(torch.nn.Module):
 
         return pos_logits, neg_logits  # pos_pred, neg_pred
 
-    # def predict(self, user_ids, log_seqs, item_indices):  # for inference
+    # def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):  # for training
     #     log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
 
-    #     final_feat = log_feats[:, -1, :]  # only use last QKV classifier, a waste
+    #     pos_embs = self.item_code(torch.LongTensor(pos_seqs).to(self.dev))
+    #     neg_embs = self.item_code(torch.LongTensor(neg_seqs).to(self.dev))
 
-    #     item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev))  # (U, I, C)
+    #     pos_logits = (log_feats * pos_embs).sum(dim=-1)
+    #     neg_logits = (log_feats * neg_embs).sum(dim=-1)
 
-    #     logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
+    #     # pos_pred = self.pos_sigmoid(pos_logits)
+    #     # neg_pred = self.neg_sigmoid(neg_logits)
 
-    #     # preds = self.pos_sigmoid(logits) # rank same item list for different users
-
-    #     return logits  # preds # (U, I)
+    #     return pos_logits, neg_logits  # pos_pred, neg_pred
 
     def predict(self, user_ids, log_seqs, item_indices):  # for inference
         log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
 
         final_feat = log_feats[:, -1, :]  # only use last QKV classifier, a waste
 
-        item_embs = self.item_code(torch.LongTensor(item_indices).unsqueeze(0).to(self.dev))  # (U, I, C)
+        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev))  # (U, I, C)
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
 
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits  # preds # (U, I)
+
+    # def predict(self, user_ids, log_seqs, item_indices):  # for inference
+    #     log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
+
+    #     final_feat = log_feats[:, -1, :]  # only use last QKV classifier, a waste
+
+    #     item_embs = self.item_code(torch.LongTensor(item_indices).unsqueeze(0).to(self.dev))  # (U, I, C)
+
+    #     logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
+
+    #     # preds = self.pos_sigmoid(logits) # rank same item list for different users
+
+    #     return logits  # preds # (U, I)
 
     def get_seq_embedding(self, input_ids):
         pass

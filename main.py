@@ -5,6 +5,8 @@ import argparse
 
 from model import SASRec
 from utils import *
+from test_embedding import visualize_embedding, plot_loss_curve
+from datetime import datetime
 
 
 def str2bool(s):
@@ -18,10 +20,10 @@ parser.add_argument("--dataset", required=True)
 parser.add_argument("--segment", default=8, type=int, required=True)
 parser.add_argument("--type", default="normal", type=str, required=True)
 parser.add_argument("--train_dir", required=True)
-parser.add_argument("--batch_size", default=256, type=int)
+parser.add_argument("--batch_size", default=128, type=int)
 parser.add_argument("--lr", default=1e-3, type=float)
-parser.add_argument("--maxlen", default=200, type=int)
-parser.add_argument("--hidden_units", default=400, type=int)
+parser.add_argument("--maxlen", default=50, type=int)
+parser.add_argument("--hidden_units", default=200, type=int)
 parser.add_argument("--num_blocks", default=2, type=int)
 parser.add_argument("--num_epochs", default=200, type=int)
 parser.add_argument("--num_heads", default=1, type=int)
@@ -53,8 +55,14 @@ if __name__ == "__main__":
         cc += len(user_train[u])
     print("average sequence length: %.2f" % (cc / len(user_train)))
 
-    f = open(os.path.join(args.dataset + "_" + args.train_dir, "log.txt"), "w")
-    f.write("epoch (val_ndcg, val_hr) (test_ndcg, test_hr)\n")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    f = open(
+        os.path.join(
+            args.dataset + "_" + args.train_dir, f"log_{timestamp}_{args.segment}_segment_{args.type}.txt"
+        ),
+        "w",
+    )
+    f.write("epoch (val_ndcg, val_hr) (test_ndcg, test_hr) loss\n")
 
     sampler = WarpSampler(
         user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3
@@ -68,7 +76,7 @@ if __name__ == "__main__":
             print(f"{name}: {param.numel()}")
 
     # initialize item code
-    model.item_code.assign_codes(user_train)
+    # model.item_code.assign_codes(user_train)
 
     for name, param in model.named_parameters():
         try:
@@ -133,7 +141,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_code.parameters():
+            for param in model.item_emb.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -179,7 +187,7 @@ if __name__ == "__main__":
             print(
                 f"Current best result: value_NDCG {best_val_ndcg}, value_HR {best_val_hr}, test_NDCG {best_test_ndcg}, test_HR {best_test_hr}"
             )
-            f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + "\n")
+            f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + str(avg_loss) + "\n")
             f.flush()
             t0 = time.time()
             model.train()
@@ -192,14 +200,26 @@ if __name__ == "__main__":
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
             # save item embeddings with args.type, args.segment, and unique timestamp
-            item_embeddings = []
-            for i in range(itemnum):
-                item_embeddings.append(model.item_code.get_item_embedding(i).to("cpu"))
-            item_embeddings.append(torch.zeros(args.hidden_units))
-            item_embeddings_torch = torch.stack(item_embeddings, dim=0)
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
             if not os.path.isdir("item_embeddings"):
                 os.makedirs("item_embeddings")
+            item_embeddings = []
+            item_embeddings.append(torch.zeros(args.hidden_units))
+            for i in range(itemnum):
+                item_embeddings.append(model.item_code.get_item_embedding(i).to("cpu"))
+            item_embeddings_torch = torch.stack(item_embeddings, dim=0)
+            visualize_embedding(
+                item_embeddings_torch,
+                output_filename=os.path.join(
+                    folder,
+                    f"item_embeddings_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png",
+                ),
+                figsize=(20, 15),
+                dpi=300,
+                save_statistics=True,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                segment_size=50,
+            )
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
             fname = f"item_embeddings_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.pth"
             torch.save(item_embeddings_torch, os.path.join("item_embeddings", fname))
 
@@ -207,11 +227,4 @@ if __name__ == "__main__":
     sampler.close()
     print("Done")
 
-    import matplotlib.pyplot as plt
-
-    plt.plot(loss_list)
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    if not os.path.isdir("loss_fig"):
-        os.makedirs("loss_fig")
-    fname = f"loss_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png"
-    plt.savefig(os.path.join("loss_fig", fname))
+    plot_loss_curve(loss_list, args.dataset, args.segment, args.type)

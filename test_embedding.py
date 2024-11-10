@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import entropy
 import seaborn as sns
-from typing import Union, Optional
+from typing import Union, Optional, List
 import os
 import torch
+import time
 
 
 def visualize_embedding(
@@ -54,7 +55,7 @@ def visualize_embedding(
     segment_entropies = [calculate_segment_entropy(seg) for seg in segments]
 
     plt.subplot(2, 2, 1)
-    bars = plt.bar(range(n_segments) + 1, segment_entropies)
+    bars = plt.bar(range(1, n_segments + 1), segment_entropies)
     plt.title("Segment Entropies", fontsize=12, pad=10)
     plt.xlabel("Segment Index")
     plt.ylabel("Entropy")
@@ -154,20 +155,60 @@ def visualize_embedding(
     return statistics
 
 
-# Example usage:
+def plot_loss_curve(loss_list, dataset, segment, type_):
+
+    # 创建图形
+    plt.figure(figsize=(10, 6))
+    plt.plot(loss_list, label="Loss", color="blue")
+
+    # 设置图表标题和轴标签
+    plt.title(f"Loss Over Time for {dataset} Dataset with {segment} Segment and {type_} Type")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+
+    # 添加网格线
+    plt.grid(True)
+
+    # 显示图例
+    plt.legend()
+
+    # 获取当前时间戳
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+
+    # 创建目录（如果不存在）
+    directory = "loss_fig"
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+
+    # 构建文件名
+    fname = f"loss_{dataset}_{segment}_segment_{type_}_{timestamp}.png"
+
+    # 保存图表
+    save_path = os.path.join(directory, fname)
+    plt.savefig(save_path)
+
+    return save_path
+
+
 if __name__ == "__main__":
-    # Example with PyTorch tensor
-    import torch
+    # # Example with PyTorch tensor
+    # sample_embedding_torch = torch.load("./item_embeddings.pth")
 
-    sample_embedding_torch = torch.load("./item_embeddings.pth")
+    # # Visualize and get statistics using PyTorch tensor
+    # stats_torch = visualize_embedding(
+    #     embedding=sample_embedding_torch,
+    #     output_filename="embedding_analysis_torch.png",
+    #     segment_size=50,
+    #     figsize=(20, 15),
+    #     dpi=300,
+    #     save_statistics=True,
+    #     device="cuda" if torch.cuda.is_available() else "cpu",
+    # )
 
-    # Visualize and get statistics using PyTorch tensor
-    stats_torch = visualize_embedding(
-        embedding=sample_embedding_torch,
-        output_filename="embedding_analysis_torch.png",
-        segment_size=50,
-        figsize=(20, 15),
-        dpi=300,
-        save_statistics=True,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+    sample_loss = [0.5, 0.4, 0.3, 0.25, 0.2, 0.18, 0.15, 0.13, 0.12, 0.11]
+
+    # Plot with default settings
+    save_path = plot_loss_curve(
+        loss_list=sample_loss, dataset="beauty", segment="6", type_="SASREC", args=None
     )
+    print(f"Plot saved at: {save_path}")
