@@ -1,8 +1,8 @@
-batch_size,128
+batch_size,256
 dataset,beauty_geq8
 device,cuda
 dropout_rate,0.2
-hidden_units,400
+hidden_units,300
 inference_only,False
 l2_emb,0.0
 lr,0.001
@@ -10,7 +10,7 @@ maxlen,50
 num_blocks,2
 num_epochs,200
 num_heads,1
-segment,8
+segment,6
 state_dict_path,None
 train_dir,default
-type,SASREC
+type,normal_zero

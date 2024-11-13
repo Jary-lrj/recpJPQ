@@ -20,7 +20,7 @@ parser.add_argument("--dataset", required=True)
 parser.add_argument("--segment", default=8, type=int, required=True)
 parser.add_argument("--type", default="normal", type=str, required=True)
 parser.add_argument("--train_dir", required=True)
-parser.add_argument("--batch_size", default=128, type=int)
+parser.add_argument("--batch_size", default=256, type=int)
 parser.add_argument("--lr", default=1e-3, type=float)
 parser.add_argument("--maxlen", default=50, type=int)
 parser.add_argument("--hidden_units", default=200, type=int)
@@ -76,7 +76,7 @@ if __name__ == "__main__":
             print(f"{name}: {param.numel()}")
 
     # initialize item code
-    # model.item_code.assign_codes(user_train)
+    model.item_code.assign_codes(user_train)
 
     for name, param in model.named_parameters():
         try:
@@ -141,7 +141,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_emb.parameters():
+            for param in model.item_code.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -219,9 +219,6 @@ if __name__ == "__main__":
                 device="cuda" if torch.cuda.is_available() else "cpu",
                 segment_size=50,
             )
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            fname = f"item_embeddings_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.pth"
-            torch.save(item_embeddings_torch, os.path.join("item_embeddings", fname))
 
     f.close()
     sampler.close()

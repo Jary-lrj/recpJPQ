@@ -10,5 +10,7 @@ maxlen,200
 num_blocks,2
 num_epochs,200
 num_heads,1
+segment,6
 state_dict_path,None
 train_dir,default
+type,recJPQ200

@@ -13,7 +13,7 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
         for user, item_set in train_users.items():
             for item in item_set:
                 rows.append(user - 1)
-                cols.append(item - 1)
+                cols.append(item)
                 vals.append(1)
 
         # Convert to PyTorch sparse tensor
@@ -44,5 +44,6 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
             component_assignments = discretizer.fit_transform(ith_component).astype("uint8")[:, 0]
             assignments.append(torch.from_numpy(component_assignments).to(self.device))
 
+        final_tensor = torch.stack(assignments).t()
         print("KBinsDiscretizer done")
-        return torch.stack(assignments).t()
+        return final_tensor

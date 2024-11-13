@@ -14,7 +14,7 @@ def visualize_embedding(
     segment_size: int = 50,
     figsize: tuple = (20, 15),
     dpi: int = 300,
-    entropy_bins: int = 50,
+    entropy_bins: int = 110,
     cmap_entropy: str = "YlOrRd",
     cmap_corr: str = "coolwarm",
     save_statistics: bool = True,
@@ -157,33 +157,25 @@ def visualize_embedding(
 
 def plot_loss_curve(loss_list, dataset, segment, type_):
 
-    # 创建图形
     plt.figure(figsize=(10, 6))
     plt.plot(loss_list, label="Loss", color="blue")
 
-    # 设置图表标题和轴标签
     plt.title(f"Loss Over Time for {dataset} Dataset with {segment} Segment and {type_} Type")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
 
-    # 添加网格线
     plt.grid(True)
 
-    # 显示图例
     plt.legend()
 
-    # 获取当前时间戳
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
-    # 创建目录（如果不存在）
     directory = "loss_fig"
     if not os.path.isdir(directory):
         os.makedirs(directory)
 
-    # 构建文件名
     fname = f"loss_{dataset}_{segment}_segment_{type_}_{timestamp}.png"
 
-    # 保存图表
     save_path = os.path.join(directory, fname)
     plt.savefig(save_path)
 
