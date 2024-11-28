@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec
+from model import SASRec, GRU4Rec
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -16,17 +16,18 @@ def str2bool(s):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--model", default="SASRec", type=str)
 parser.add_argument("--dataset", required=True)
 parser.add_argument("--segment", default=8, type=int, required=True)
 parser.add_argument("--type", default="normal", type=str, required=True)
 parser.add_argument("--train_dir", required=True)
-parser.add_argument("--batch_size", default=256, type=int)
+parser.add_argument("--batch_size", default=2048, type=int)
 parser.add_argument("--lr", default=1e-3, type=float)
 parser.add_argument("--maxlen", default=50, type=int)
 parser.add_argument("--hidden_units", default=200, type=int)
 parser.add_argument("--num_blocks", default=2, type=int)
 parser.add_argument("--num_epochs", default=200, type=int)
-parser.add_argument("--num_heads", default=1, type=int)
+parser.add_argument("--num_heads", default=2, type=int)
 parser.add_argument("--dropout_rate", default=0.2, type=float)
 parser.add_argument("--l2_emb", default=0.0, type=float)
 parser.add_argument("--device", default="cuda", type=str)
@@ -67,25 +68,28 @@ if __name__ == "__main__":
     sampler = WarpSampler(
         user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3
     )
-    model = SASRec(usernum, itemnum, args).to(
-        args.device
-    )  # no ReLU activation in original SASRec implementation?
+    if args.model == "SASRec":
+        model = SASRec(usernum, itemnum, args).to(args.device)
+    elif args.model == "GRU4Rec":
+        model = GRU4Rec(usernum, itemnum, args).to(args.device)
+    else:
+        raise ValueError("Invalid model name")
 
     for name, param in model.named_parameters():
         if param.requires_grad:
             print(f"{name}: {param.numel()}")
 
     # initialize item code
-    model.item_code.assign_codes(user_train)
+    # model.item_code.assign_codes_recJPQ(user_train)
 
     for name, param in model.named_parameters():
         try:
-            torch.nn.init.xavier_normal_(param.data)
+            torch.nn.init.constant_(param.data, 0.02)  # Initialize with a constant value of 0.02
         except:
             pass  # just ignore those failed init layers
 
-    model.pos_emb.weight.data[0, :] = 0
-    model.item_emb.weight.data[0, :] = 0
+    # model.pos_emb.weight.data[0, :] = 0
+    # model.item_emb.weight.data[0, :] = 0
 
     # this fails embedding init 'Embedding' object has no attribute 'dim'
     # model.apply(torch.nn.init.xavier_uniform_)
@@ -116,8 +120,8 @@ if __name__ == "__main__":
     bce_criterion = torch.nn.BCEWithLogitsLoss()  # torch.nn.BCELoss()
     adam_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
 
-    best_val_ndcg, best_val_hr = 0.0, 0.0
-    best_test_ndcg, best_test_hr = 0.0, 0.0
+    best_val_ndcg, best_val_hr, best_val_mrr, best_val_recall = 0.0, 0.0, 0.0, 0.0
+    best_test_ndcg, best_test_hr, best_test_mrr, best_test_recall = 0.0, 0.0, 0.0, 0.0
     T = 0.0
     t0 = time.time()
 
@@ -164,29 +168,54 @@ if __name__ == "__main__":
             #     % (epoch, T, t_train[0], t_train[1], t_valid[0], t_valid[1], t_test[0], t_test[1])
             # )
             print(
-                "epoch:%d, time: %f(s), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
-                % (epoch, T, t_valid[0], t_valid[1], t_test[0], t_test[1])
+                "epoch:%d, time: %f(s), valid (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f), test (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f)"
+                % (
+                    epoch,
+                    T,
+                    t_valid[0],
+                    t_valid[1],
+                    t_valid[2],
+                    t_test[0],
+                    t_test[1],
+                    t_test[2],
+                )
             )
 
             if (
-                t_valid[0] > best_val_ndcg
-                or t_valid[1] > best_val_hr
-                or t_test[0] > best_test_ndcg
-                or t_test[1] > best_test_hr
+                t_valid[0] > best_val_mrr
+                or t_valid[1] > best_val_ndcg
+                or t_valid[2] > best_val_hr
+                or t_test[0] > best_test_mrr
+                or t_test[1] > best_test_ndcg
+                or t_test[2] > best_test_hr
             ):
-                best_val_ndcg = max(t_valid[0], best_val_ndcg)
-                best_val_hr = max(t_valid[1], best_val_hr)
-                best_test_ndcg = max(t_test[0], best_test_ndcg)
-                best_test_hr = max(t_test[1], best_test_hr)
+                best_val_mrr = max(t_valid[0], best_val_mrr)
+                best_val_ndcg = max(t_valid[1], best_val_ndcg)
+                best_val_hr = max(t_valid[2], best_val_hr)
+                best_test_mrr = max(t_test[0], best_test_mrr)
+                best_test_ndcg = max(t_test[1], best_test_ndcg)
+                best_test_hr = max(t_test[2], best_test_hr)
                 folder = args.dataset + "_" + args.train_dir
-                fname = "SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
+                fname = "{}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
                 fname = fname.format(
-                    epoch, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen
+                    args.model,
+                    epoch,
+                    args.lr,
+                    args.num_blocks,
+                    args.num_heads,
+                    args.hidden_units,
+                    args.maxlen,
                 )
                 torch.save(model.state_dict(), os.path.join(folder, fname))
-            print(
-                f"Current best result: value_NDCG {best_val_ndcg}, value_HR {best_val_hr}, test_NDCG {best_test_ndcg}, test_HR {best_test_hr}"
-            )
+            print("Current Best Results:")
+            print(f"  Validation Metrics:")
+            print(f"    - MRR:  {best_val_mrr:.4f}")
+            print(f"    - NDCG: {best_val_ndcg:.4f}")
+            print(f"    - HR:   {best_val_hr:.4f}")
+            print(f"  Test Metrics:")
+            print(f"    - MRR:  {best_test_mrr:.4f}")
+            print(f"    - NDCG: {best_test_ndcg:.4f}")
+            print(f"    - HR:   {best_test_hr:.4f}")
             f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + str(avg_loss) + "\n")
             f.flush()
             t0 = time.time()
@@ -194,9 +223,15 @@ if __name__ == "__main__":
 
         if epoch == args.num_epochs:
             folder = args.dataset + "_" + args.train_dir
-            fname = "SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
+            fname = "{}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
             fname = fname.format(
-                args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen
+                args.model,
+                args.num_epochs,
+                args.lr,
+                args.num_blocks,
+                args.num_heads,
+                args.hidden_units,
+                args.maxlen,
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
             # save item embeddings with args.type, args.segment, and unique timestamp

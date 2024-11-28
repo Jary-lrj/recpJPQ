@@ -1,4 +1,4 @@
-batch_size,128
+batch_size,2048
 dataset,beauty_geq4
 device,cuda
 dropout_rate,0.5
@@ -7,10 +7,11 @@ inference_only,False
 l2_emb,0.0
 lr,0.001
 maxlen,50
+model,GRU4Rec
 num_blocks,2
 num_epochs,200
-num_heads,1
+num_heads,2
 segment,4
 state_dict_path,None
 train_dir,default
-type,recJPQ
+type,normal

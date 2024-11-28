@@ -13,4 +13,4 @@ num_heads,1
 segment,6
 state_dict_path,None
 train_dir,default
-type,recJPQ
+type,normal_random

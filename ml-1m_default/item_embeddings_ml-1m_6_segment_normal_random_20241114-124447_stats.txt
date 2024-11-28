@@ -1,0 +1,20 @@
+Embedding Analysis Statistics
+===========================
+
+Input type: Tensor
+Input shape: (3417, 300)
+
+Segment Entropies:
+Segment 0: 2.393
+Segment 1: 2.957
+Segment 2: 3.320
+Segment 3: 3.365
+Segment 4: 3.288
+Segment 5: 3.348
+
+Summary Statistics:
+mean_entropy: 3.112
+std_entropy: 0.350
+max_correlation: 0.054
+min_correlation: -0.032
+mean_correlation: 0.010
