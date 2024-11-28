@@ -113,15 +113,15 @@ if __name__ == "__main__":
     if args.inference_only:
         model.eval()
         t_test = evaluate(model, dataset, args)
-        print("test (NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1]))
+        print("test (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1], t_test[2]))
 
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...
     bce_criterion = torch.nn.BCEWithLogitsLoss()  # torch.nn.BCELoss()
     adam_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
 
-    best_val_ndcg, best_val_hr, best_val_mrr, best_val_recall = 0.0, 0.0, 0.0, 0.0
-    best_test_ndcg, best_test_hr, best_test_mrr, best_test_recall = 0.0, 0.0, 0.0, 0.0
+    best_val_ndcg, best_val_hr, best_val_mrr = 0.0, 0.0, 0.0
+    best_test_ndcg, best_test_hr, best_test_mrr = 0.0, 0.0, 0.0
     T = 0.0
     t0 = time.time()
 
@@ -196,15 +196,17 @@ if __name__ == "__main__":
                 best_test_ndcg = max(t_test[1], best_test_ndcg)
                 best_test_hr = max(t_test[2], best_test_hr)
                 folder = args.dataset + "_" + args.train_dir
-                fname = "{}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
+                fname = "best_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
                 fname = fname.format(
                     args.model,
+                    args.type,
                     epoch,
                     args.lr,
                     args.num_blocks,
                     args.num_heads,
                     args.hidden_units,
                     args.maxlen,
+                    timestamp,
                 )
                 torch.save(model.state_dict(), os.path.join(folder, fname))
             print("Current Best Results:")
@@ -223,30 +225,28 @@ if __name__ == "__main__":
 
         if epoch == args.num_epochs:
             folder = args.dataset + "_" + args.train_dir
-            fname = "{}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth"
+            fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
             fname = fname.format(
                 args.model,
-                args.num_epochs,
+                args.type,
+                epoch,
                 args.lr,
                 args.num_blocks,
                 args.num_heads,
                 args.hidden_units,
                 args.maxlen,
+                timestamp,
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
             # save item embeddings with args.type, args.segment, and unique timestamp
             if not os.path.isdir("item_embeddings"):
                 os.makedirs("item_embeddings")
-            item_embeddings = []
-            item_embeddings.append(torch.zeros(args.hidden_units))
-            for i in range(itemnum):
-                item_embeddings.append(model.item_code.get_item_embedding(i).to("cpu"))
-            item_embeddings_torch = torch.stack(item_embeddings, dim=0)
+            item_embeddings = model.item_code.get_all_item_embeddings()
             visualize_embedding(
-                item_embeddings_torch,
+                item_embeddings,
                 output_filename=os.path.join(
                     folder,
-                    f"item_embeddings_{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png",
+                    f"{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png",
                 ),
                 figsize=(20, 15),
                 dpi=300,
