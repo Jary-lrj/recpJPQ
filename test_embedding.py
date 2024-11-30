@@ -48,29 +48,50 @@ def visualize_embedding(
 
     # 1. Calculate and plot segment entropies
     def calculate_segment_entropy(segment):
-        hist, _ = np.histogram(segment.flatten(), bins=entropy_bins, density=True)
-        hist = hist + 1e-10  # Avoid log(0)
-        return entropy(hist)
+        """
+        计算一个段中所有 50 维向量的熵，返回段的平均熵。
+        """
+        vector_entropies = []
+        for vector in segment:  # 遍历每个 50 维向量
+            hist, _ = np.histogram(vector, bins=entropy_bins, density=True)
+            hist = hist + 1e-10  # 避免 log(0)
+            vector_entropy = entropy(hist)
+            vector_entropies.append(vector_entropy)
 
+        # 返回该段所有向量熵的平均值
+        return np.mean(vector_entropies)
+
+    # 计算每段的平均熵值
     segment_entropies = [calculate_segment_entropy(seg) for seg in segments]
 
+    # 绘制条形图
     plt.subplot(2, 2, 1)
     bars = plt.bar(range(1, n_segments + 1), segment_entropies)
-    plt.title("Segment Entropies", fontsize=12, pad=10)
+    plt.title("Segment Entropies (Average per Vector)", fontsize=12, pad=10)
     plt.xlabel("Segment Index")
-    plt.ylabel("Entropy")
+    plt.ylabel("Average Entropy")
+
+    # 在条形顶部添加标签
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2.0, height,
+                 f"{height:.2f}", ha="center", va="bottom")
+
+    plt.show()
 
     # Add value labels on top of bars
     for bar in bars:
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2.0, height, f"{height:.2f}", ha="center", va="bottom")
+        plt.text(bar.get_x() + bar.get_width() / 2.0, height,
+                 f"{height:.2f}", ha="center", va="bottom")
 
     # 2. Calculate and plot dimension entropy boxplot
     dimension_entropies = []
     for segment in segments:
         dim_entropies = []
         for dim in range(segment.shape[1]):
-            hist, _ = np.histogram(segment[:, dim], bins=entropy_bins, density=True)
+            hist, _ = np.histogram(
+                segment[:, dim], bins=entropy_bins, density=True)
             hist = hist + 1e-10
             dim_entropies.append(entropy(hist))
         dimension_entropies.append(dim_entropies)
@@ -117,7 +138,8 @@ def visualize_embedding(
     plt.tight_layout()
 
     # Ensure directory exists
-    os.makedirs(os.path.dirname(output_filename) if os.path.dirname(output_filename) else ".", exist_ok=True)
+    os.makedirs(os.path.dirname(output_filename) if os.path.dirname(
+        output_filename) else ".", exist_ok=True)
 
     # Save figure
     plt.savefig(output_filename, dpi=dpi, bbox_inches="tight")
@@ -155,12 +177,13 @@ def visualize_embedding(
     return statistics
 
 
-def plot_loss_curve(loss_list, dataset, segment, type_):
+def plot_loss_curve(model, loss_list, dataset, segment, type_):
 
     plt.figure(figsize=(10, 6))
     plt.plot(loss_list, label="Loss", color="blue")
 
-    plt.title(f"Loss Over Time for {dataset} Dataset with {segment} Segment and {type_} Type")
+    plt.title(
+        f"Loss Over Time for {dataset} Dataset with {segment} Segment and {type_} Type")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
 
@@ -174,7 +197,7 @@ def plot_loss_curve(loss_list, dataset, segment, type_):
     if not os.path.isdir(directory):
         os.makedirs(directory)
 
-    fname = f"loss_{dataset}_{segment}_segment_{type_}_{timestamp}.png"
+    fname = f"loss_{model}_{dataset}_{segment}_segment_{type_}_{timestamp}.png"
 
     save_path = os.path.join(directory, fname)
     plt.savefig(save_path)

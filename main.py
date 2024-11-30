@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec, GRU4Rec
+from model import SASRec, GRU4Rec, NARM
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -38,7 +38,8 @@ args = parser.parse_args()
 if not os.path.isdir(args.dataset + "_" + args.train_dir):
     os.makedirs(args.dataset + "_" + args.train_dir)
 with open(os.path.join(args.dataset + "_" + args.train_dir, "args.txt"), "w") as f:
-    f.write("\n".join([str(k) + "," + str(v) for k, v in sorted(vars(args).items(), key=lambda x: x[0])]))
+    f.write("\n".join([str(k) + "," + str(v)
+            for k, v in sorted(vars(args).items(), key=lambda x: x[0])]))
 f.close()
 
 if __name__ == "__main__":
@@ -59,7 +60,8 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     f = open(
         os.path.join(
-            args.dataset + "_" + args.train_dir, f"log_{timestamp}_{args.segment}_segment_{args.type}.txt"
+            args.dataset + "_" +
+            args.train_dir, f"log_{timestamp}_{args.segment}_segment_{args.type}.txt"
         ),
         "w",
     )
@@ -72,6 +74,8 @@ if __name__ == "__main__":
         model = SASRec(usernum, itemnum, args).to(args.device)
     elif args.model == "GRU4Rec":
         model = GRU4Rec(usernum, itemnum, args).to(args.device)
+    elif args.model == "NARM":
+        model = NARM(usernum, itemnum, args).to(args.device)
     else:
         raise ValueError("Invalid model name")
 
@@ -80,11 +84,12 @@ if __name__ == "__main__":
             print(f"{name}: {param.numel()}")
 
     # initialize item code
-    # model.item_code.assign_codes_recJPQ(user_train)
+    model.item_code.assign_codes_recJPQ(user_train)
 
     for name, param in model.named_parameters():
         try:
-            torch.nn.init.constant_(param.data, 0.02)  # Initialize with a constant value of 0.02
+            # Initialize with a constant value of 0.02
+            torch.nn.init.constant_(param.data, 0.02)
         except:
             pass  # just ignore those failed init layers
 
@@ -99,13 +104,16 @@ if __name__ == "__main__":
     epoch_start_idx = 1
     if args.state_dict_path is not None:
         try:
-            model.load_state_dict(torch.load(args.state_dict_path, map_location=torch.device(args.device)))
-            tail = args.state_dict_path[args.state_dict_path.find("epoch=") + 6 :]
+            model.load_state_dict(torch.load(
+                args.state_dict_path, map_location=torch.device(args.device)))
+            tail = args.state_dict_path[args.state_dict_path.find(
+                "epoch=") + 6:]
             epoch_start_idx = int(tail[: tail.find(".")]) + 1
         except:  # in case your pytorch version is not 1.6 etc., pls debug by pdb if load weights failed
             print("failed loading state_dicts, pls check file path: ", end="")
             print(args.state_dict_path)
-            print("pdb enabled for your quick check, pls type exit() if you do not need it")
+            print(
+                "pdb enabled for your quick check, pls type exit() if you do not need it")
             import pdb
 
             pdb.set_trace()
@@ -113,12 +121,14 @@ if __name__ == "__main__":
     if args.inference_only:
         model.eval()
         t_test = evaluate(model, dataset, args)
-        print("test (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f)" % (t_test[0], t_test[1], t_test[2]))
+        print("test (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f)" %
+              (t_test[0], t_test[1], t_test[2]))
 
     # ce_criterion = torch.nn.CrossEntropyLoss()
     # https://github.com/NVIDIA/pix2pixHD/issues/9 how could an old bug appear again...
     bce_criterion = torch.nn.BCEWithLogitsLoss()  # torch.nn.BCELoss()
-    adam_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
+    adam_optimizer = torch.optim.Adam(
+        model.parameters(), lr=args.lr, betas=(0.9, 0.98))
 
     best_val_ndcg, best_val_hr, best_val_mrr = 0.0, 0.0, 0.0
     best_test_ndcg, best_test_hr, best_test_mrr = 0.0, 0.0, 0.0
@@ -135,7 +145,8 @@ if __name__ == "__main__":
             num_batch
         ):  # tqdm(range(num_batch), total=num_batch, ncols=70, leave=False, unit='b'):
             u, seq, pos, neg = sampler.next_batch()  # tuples to ndarray
-            u, seq, pos, neg = np.array(u), np.array(seq), np.array(pos), np.array(neg)
+            u, seq, pos, neg = np.array(u), np.array(
+                seq), np.array(pos), np.array(neg)
             pos_logits, neg_logits = model(u, seq, pos, neg)
             pos_labels, neg_labels = torch.ones(pos_logits.shape, device=args.device), torch.zeros(
                 neg_logits.shape, device=args.device
@@ -167,20 +178,18 @@ if __name__ == "__main__":
             #     "epoch:%d, time: %f(s), train (NDCG@10: %.4f, HR@10: %.4f), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
             #     % (epoch, T, t_train[0], t_train[1], t_valid[0], t_valid[1], t_test[0], t_test[1])
             # )
-            print(
-                "epoch:%d, time: %f(s), valid (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f), test (MRR@10: %.4f, NDCG@10: %.4f, HR@10: %.4f)"
-                % (
-                    epoch,
-                    T,
-                    t_valid[0],
-                    t_valid[1],
-                    t_valid[2],
-                    t_test[0],
-                    t_test[1],
-                    t_test[2],
-                )
-            )
-
+            print("-" * 50)
+            print(f"Epoch: {epoch}")
+            print(f"Time Taken: {T:.2f} seconds")
+            print("Validation Metrics:")
+            print(f"  - MRR@10:  {t_valid[0]:.4f}")
+            print(f"  - NDCG@10: {t_valid[1]:.4f}")
+            print(f"  - HR@10:   {t_valid[2]:.4f}")
+            print("Test Metrics:")
+            print(f"  - MRR@10:  {t_test[0]:.4f}")
+            print(f"  - NDCG@10: {t_test[1]:.4f}")
+            print(f"  - HR@10:   {t_test[2]:.4f}")
+            print("-" * 50)
             if (
                 t_valid[0] > best_val_mrr
                 or t_valid[1] > best_val_ndcg
@@ -209,6 +218,7 @@ if __name__ == "__main__":
                     timestamp,
                 )
                 torch.save(model.state_dict(), os.path.join(folder, fname))
+            print("-" * 50)
             print("Current Best Results:")
             print(f"  Validation Metrics:")
             print(f"    - MRR:  {best_val_mrr:.4f}")
@@ -218,7 +228,9 @@ if __name__ == "__main__":
             print(f"    - MRR:  {best_test_mrr:.4f}")
             print(f"    - NDCG: {best_test_ndcg:.4f}")
             print(f"    - HR:   {best_test_hr:.4f}")
-            f.write(str(epoch) + " " + str(t_valid) + " " + str(t_test) + str(avg_loss) + "\n")
+            print("-" * 50)
+            f.write(str(epoch) + " " + str(t_valid) + " " +
+                    str(t_test) + str(avg_loss) + "\n")
             f.flush()
             t0 = time.time()
             model.train()
@@ -259,4 +271,5 @@ if __name__ == "__main__":
     sampler.close()
     print("Done")
 
-    plot_loss_curve(loss_list, args.dataset, args.segment, args.type)
+    plot_loss_curve(args.model, loss_list, args.dataset,
+                    args.segment, args.type)

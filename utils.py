@@ -145,7 +145,11 @@ def evaluate(model, dataset, args):
     MRR = 0.0
     valid_user = 0.0
 
-    users = range(1, usernum + 1)
+    if usernum > 10000:
+        users = random.sample(range(1, usernum + 1), 10000)
+    else:
+        users = range(1, usernum + 1)
+
     for u in users:
 
         if len(train[u]) < 1 or len(test[u]) < 1:
@@ -177,7 +181,8 @@ def evaluate(model, dataset, args):
         #         t = np.random.randint(1, itemnum + 1)
         #     item_idx.append(t)
 
-        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = -model.predict(*[np.array(l)
+                                     for l in [[u], [seq], item_idx]])
         predictions = predictions[0]  # - for 1st argsort DESC
 
         rank = predictions.argsort().argsort()[0].item()
@@ -203,7 +208,11 @@ def evaluate_valid(model, dataset, args):
     MRR = 0.0
     valid_user = 0.0
 
-    users = range(1, usernum + 1)
+    if usernum > 10000:
+        users = random.sample(range(1, usernum + 1), 10000)
+    else:
+        users = range(1, usernum + 1)
+
     for u in users:
         if len(train[u]) < 1 or len(valid[u]) < 1:
             continue
@@ -232,7 +241,8 @@ def evaluate_valid(model, dataset, args):
             sampled_items[-1] = target_item
         item_idx = sampled_items.copy()
 
-        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = -model.predict(*[np.array(l)
+                                     for l in [[u], [seq], item_idx]])
         predictions = predictions[0]
 
         rank = predictions.argsort().argsort()[0].item()
@@ -278,7 +288,8 @@ def evaluate_all(model, dataset, args, eval_set="test"):
             target_set = test[u]
             target_item = target_set[0]
         else:
-            raise ValueError("eval_set must be one of 'train', 'valid', or 'test'")
+            raise ValueError(
+                "eval_set must be one of 'train', 'valid', or 'test'")
 
         seq = np.zeros([args.maxlen], dtype=np.int32)
         idx = args.maxlen - 1
@@ -300,7 +311,8 @@ def evaluate_all(model, dataset, args, eval_set="test"):
                 t = np.random.randint(1, itemnum + 1)
             item_idx.append(t)
 
-        predictions = -model.predict(*[np.array(l) for l in [[u], [seq], item_idx]])
+        predictions = -model.predict(*[np.array(l)
+                                     for l in [[u], [seq], item_idx]])
         predictions = predictions[0]  # - for 1st argsort DESC
 
         rank = predictions.argsort().argsort()[0].item()
