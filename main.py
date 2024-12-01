@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec, GRU4Rec, NARM
+from model import SASRec, GRU4Rec, NARM, SRGNN
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -61,10 +61,12 @@ if __name__ == "__main__":
     f = open(
         os.path.join(
             args.dataset + "_" +
-            args.train_dir, f"log_{timestamp}_{args.segment}_segment_{args.type}.txt"
+            args.train_dir, f"log_{timestamp}_{args.model}_{args.dataset}_{args.segment}_segment_{args.type}.txt"
         ),
         "w",
     )
+    for arg in vars(args):
+        f.write(f"{arg}: {getattr(args, arg)}\n")
     f.write("epoch (val_ndcg, val_hr) (test_ndcg, test_hr) loss\n")
 
     sampler = WarpSampler(
@@ -76,6 +78,8 @@ if __name__ == "__main__":
         model = GRU4Rec(usernum, itemnum, args).to(args.device)
     elif args.model == "NARM":
         model = NARM(usernum, itemnum, args).to(args.device)
+    elif args.model == "SRGNN":
+        model = SRGNN(usernum, itemnum, args).to(args.device)
     else:
         raise ValueError("Invalid model name")
 
@@ -84,7 +88,7 @@ if __name__ == "__main__":
             print(f"{name}: {param.numel()}")
 
     # initialize item code
-    model.item_code.assign_codes_recJPQ(user_train)
+    # model.item_code.assign_codes_recJPQ(user_train)
 
     for name, param in model.named_parameters():
         try:
@@ -258,7 +262,7 @@ if __name__ == "__main__":
                 item_embeddings,
                 output_filename=os.path.join(
                     folder,
-                    f"{args.dataset}_{args.segment}_segment_{args.type}_{timestamp}.png",
+                    f"{args.dataset}_{args.model}_{args.segment}_segment_{args.type}_{timestamp}.png",
                 ),
                 figsize=(20, 15),
                 dpi=300,

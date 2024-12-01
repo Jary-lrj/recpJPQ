@@ -1,2 +1,2 @@
-cd .. 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4 python main.py --dataset=movies_geq6 --segment=6 --hidden_units=300 --type=normal_random --num_epochs=200 --train_dir=default --maxlen=200 --dropout_rate=0.2 --device=cuda
+cd ..
+CUDA_VISIBLE_DEVICES=0,1,2,3,4 python main.py --model=SRGNN --dataset=movies_seg4 --segment=4 --hidden_units=200 --type=normal --num_epochs=200 --train_dir=default --maxlen=50 --dropout_rate=0.2  --device=cuda
