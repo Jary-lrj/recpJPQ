@@ -21,12 +21,11 @@ from utils import check_unique_item
 import faiss
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
-from item_pretrain import train_contrastive_model
-from bert import TransformerEncoder
 import torch.nn.functional as F
 from torch.nn import Parameter
 
 from quotient_remainder import QREmbedding as QREmbeddingBag
+from cage.cage import Cage
 
 
 class PointWiseFeedForward(torch.nn.Module):
@@ -61,16 +60,19 @@ class SASRec(torch.nn.Module):
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
 
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num + 1, args.hidden_units, padding_idx=0)
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.5)
+
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
 
         self.pos_emb = torch.nn.Embedding(
             args.maxlen + 1, args.hidden_units, padding_idx=0)
@@ -108,6 +110,7 @@ class SASRec(torch.nn.Module):
     ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
         seqs = self.item_emb(torch.LongTensor(log_seqs).to(
             self.dev))  # (256, 200) -> (256, 200, 48)
+        seqs = self.cage(seqs)
         seqs *= (self.embedding_size) ** 0.5
         poss = np.tile(
             np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
@@ -185,16 +188,19 @@ class GRU4Rec(torch.nn.Module):
         self.dropout_prob = args.dropout_rate
 
         # define layers and loss
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num, args.hidden_units, padding_idx=0)
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.5)
+
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
 
         self.emb_dropout = nn.Dropout(self.dropout_prob)
         self.gru_layers = nn.GRU(
@@ -274,16 +280,19 @@ class NARM(torch.nn.Module):
         self.dropout_probs = args.dropout_rate
 
         # define layers and loss
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num, args.hidden_units, padding_idx=0)
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.5)
+
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
 
         self.emb_dropout = nn.Dropout(self.dropout_probs)
         self.gru = nn.GRU(
@@ -445,16 +454,18 @@ class SRGNN(torch.nn.Module):
         self.step = 1
 
         # define layers and loss
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num, args.hidden_units, padding_idx=0)
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.5)
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
         self.gnn = GNN(self.embedding_size, self.step)
         self.linear_one = nn.Linear(
             self.embedding_size, self.embedding_size, bias=True)
@@ -574,17 +585,18 @@ class STAMP(torch.nn.Module):
         self.embedding_size = args.hidden_units
 
         # define layers and loss
-        # self.item_emb = nn.Embedding(
-        #     self.item_num, self.embedding_size, padding_idx=0
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.5)
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
         # )
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
         self.w1 = nn.Linear(self.embedding_size,
                             self.embedding_size, bias=False)
         self.w2 = nn.Linear(self.embedding_size,

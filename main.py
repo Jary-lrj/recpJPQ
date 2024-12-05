@@ -242,6 +242,15 @@ if __name__ == "__main__":
             model.train()
 
         if epoch == args.num_epochs:
+            f.write("best results\n")
+            f.write(f"Validation Metrics:\n")
+            f.write(f"  - MRR:  {best_val_mrr:.4f}\n")
+            f.write(f"  - NDCG: {best_val_ndcg:.4f}\n")
+            f.write(f"  - HR:   {best_val_hr:.4f}\n")
+            f.write(f"Test Metrics:\n")
+            f.write(f"  - MRR:  {best_test_mrr:.4f}\n")
+            f.write(f"  - NDCG: {best_test_ndcg:.4f}\n")
+            f.write(f"  - HR:   {best_test_hr:.4f}\n")
             folder = args.dataset + "_" + args.train_dir
             fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
             fname = fname.format(
