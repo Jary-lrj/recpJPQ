@@ -26,23 +26,7 @@ from bert import TransformerEncoder
 import torch.nn.functional as F
 from torch.nn import Parameter
 
-from quotient_remainder import QREmbeddingBag
-
-
-class AdaptivePoolingReduction(torch.nn.Module):
-    def __init__(self, input_dim, target_dim, pooling_type="mean"):
-        super(AdaptivePoolingReduction, self).__init__()
-        if pooling_type.lower() == "mean":
-            self.pooling = torch.nn.AdaptiveAvgPool1d(target_dim)
-        elif pooling_type.lower() == "max":
-            self.pooling = torch.nn.AdaptiveMaxPool1d(target_dim)
-        else:
-            raise ValueError("Pooling type must be 'mean' or 'max'.")
-
-    def forward(self, x):
-        x = x.unsqueeze(1)
-        pooled_x = self.pooling(x)
-        return pooled_x.squeeze(1)
+from quotient_remainder import QREmbedding as QREmbeddingBag
 
 
 class PointWiseFeedForward(torch.nn.Module):
@@ -65,116 +49,6 @@ class PointWiseFeedForward(torch.nn.Module):
         return outputs
 
 
-class ItemCode(torch.nn.Module):
-    def __init__(self, pq_m, embedding_size, num_items, sequence_length, device):
-        super(ItemCode, self).__init__()
-        self.device = device
-        self.pq_m = pq_m  # 8
-        self.embedding_size = embedding_size
-        self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
-        self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
-        self.vals_per_dim = 256
-        self.base_type = torch.int
-        self.item_codes = torch.zeros(
-            size=(
-                num_items, self.item_code_bytes), dtype=self.base_type, device=self.device
-        )  # trainable?
-        self.centroids = torch.nn.Parameter(
-            torch.randn(self.item_code_bytes, self.vals_per_dim,
-                        self.sub_embedding_size, device=self.device)
-        )
-        with torch.no_grad():
-            self.centroids[:, 0, :] = 0  # 设置 centroids 的第 0 个索引为全零向量
-        self.n_centroids = [self.vals_per_dim] * self.pq_m
-        self.item_codes_strategy = SVDAssignmentStrategy(
-            self.item_code_bytes, num_items, self.device)
-        self.sequence_length = sequence_length
-        self.num_items = num_items
-
-    def assign_codes_recJPQ(self, train_users):
-        code = self.item_codes_strategy.assign(train_users)
-        self.item_codes = code
-        print(self.item_codes[0])
-
-    def assign_codes_reduced(self, item_embeddings):
-        num_items, reduced_dim = item_embeddings.shape
-
-        for i in range(reduced_dim):
-            subspace_data = item_embeddings[:, i].cpu(
-            ).numpy().reshape(-1, 1)  # Shape: (num_items, 1)
-            n_bins = 256  # Ensure bins don't exceed data points
-            kbin_discretizer = KBinsDiscretizer(
-                n_bins=n_bins, encode="ordinal", strategy="quantile")
-            cluster_labels = (
-                kbin_discretizer.fit_transform(
-                    subspace_data).astype(int).flatten()
-            )  # Shape: (num_items,)
-            self.item_codes[:, i] = torch.from_numpy(
-                cluster_labels).to(self.device)
-
-    def get_all_item_embeddings(self):
-        codes = self.item_codes[1:]
-        embeddings = []
-        for i in range(self.item_code_bytes):
-            code_indices = codes[:, i].long()
-            embedding = self.centroids[i][code_indices]
-            embeddings.append(embedding)
-        all_embeddings = torch.cat(embeddings, dim=-1)
-        all_embeddings = torch.cat(
-            [torch.zeros(1, self.embedding_size, device=self.device), all_embeddings], dim=0
-        )
-        return all_embeddings
-
-    # KMeans-based method
-    def assign_codes_KMeans(self, item_embeddings):
-        reshaped_embeddings = item_embeddings.reshape(
-            self.num_items + 1, self.item_code_bytes, self.sub_embedding_size
-        )
-        for i in range(self.item_code_bytes):
-            subspace_data = reshaped_embeddings[:, i, :].cpu().numpy()
-            kmeans = KMeans(
-                n_init=10, n_clusters=self.n_centroids[i], random_state=42)
-            kmeans.fit(subspace_data)
-            cluster_labels = kmeans.predict(subspace_data)
-            self.item_codes[:, i] = torch.from_numpy(
-                cluster_labels.astype(np.int32)).to(self.device)
-            centers = torch.from_numpy(kmeans.cluster_centers_).float()
-            if len(centers) < self.vals_per_dim:
-                padding = torch.randn(
-                    (self.vals_per_dim - len(centers), self.sub_embedding_size))
-                centers = torch.cat([centers, padding])
-            self.centroids.data[i] = centers.to(self.device)
-
-    def forward(self, input_ids):
-        input_ids = input_ids.to(self.device)
-        batch_size, sequence_length = input_ids.shape
-        n_centroids = self.n_centroids
-        input_codes = self.item_codes[input_ids].detach().int()
-        for i in range(self.item_code_bytes):
-            input_codes[:, :, i] = torch.clamp(
-                input_codes[:, :, i], max=n_centroids[i] - 1)
-        code_byte_indices = torch.arange(
-            self.item_code_bytes, device=self.device).unsqueeze(0).unsqueeze(0)
-        code_byte_indices = code_byte_indices.repeat(
-            batch_size, sequence_length, 1)
-        n_sub_embeddings = batch_size * sequence_length * self.item_code_bytes
-        code_byte_indices_reshaped = code_byte_indices.reshape(
-            n_sub_embeddings)
-        input_codes_reshaped = input_codes.reshape(n_sub_embeddings)
-        indices = torch.stack(
-            [code_byte_indices_reshaped, input_codes_reshaped], dim=-1)
-        input_sub_embeddings_reshaped = self.centroids[indices[:,
-                                                               0], indices[:, 1]]
-        result = input_sub_embeddings_reshaped.reshape(
-            batch_size, sequence_length, self.item_code_bytes * self.sub_embedding_size
-        )
-        # Handle number 0 item
-        mask = (input_ids == 0).unsqueeze(-1).repeat(1, 1,
-                                                     self.item_code_bytes * self.sub_embedding_size)
-        result[mask] = 0.0
-        return result
-
-
 class SASRec(torch.nn.Module):
     def __init__(self, user_num, item_num, args):
         super(SASRec, self).__init__()
@@ -183,10 +57,21 @@ class SASRec(torch.nn.Module):
         self.item_num = item_num + 1
         self.dev = args.device
 
+        self.embedding_size = args.hidden_units
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
-        self.item_emb = torch.nn.Embedding(
-            self.item_num + 1, args.hidden_units, padding_idx=0)
+
+        # self.item_emb = torch.nn.Embedding(
+        #     self.item_num + 1, args.hidden_units, padding_idx=0)
+        self.item_emb = QREmbeddingBag(
+            num_categories=self.item_num,
+            embedding_dim=args.hidden_units,
+            num_collisions=4,
+            operation="add",
+            sparse=True,
+            device=self.dev
+        )
+
         self.pos_emb = torch.nn.Embedding(
             args.maxlen + 1, args.hidden_units, padding_idx=0)
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
@@ -197,19 +82,6 @@ class SASRec(torch.nn.Module):
         self.forward_layers = torch.nn.ModuleList()
 
         self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-12)
-
-        self.pq_m = args.segment
-        self.item_code = ItemCode(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
         for _ in range(args.num_blocks):
             new_attn_layernorm = torch.nn.LayerNorm(
@@ -234,9 +106,9 @@ class SASRec(torch.nn.Module):
     def log2feats(
         self, log_seqs
     ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
-        seqs = self.item_code(torch.LongTensor(log_seqs).to(
+        seqs = self.item_emb(torch.LongTensor(log_seqs).to(
             self.dev))  # (256, 200) -> (256, 200, 48)
-        seqs *= (self.pq_m * 50) ** 0.5
+        seqs *= (self.embedding_size) ** 0.5
         poss = np.tile(
             np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])
         # TODO: directly do tensor = torch.arange(1, xxx, device='cuda') to save extra overheads
@@ -267,8 +139,8 @@ class SASRec(torch.nn.Module):
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):  # for training
         log_feats = self.log2feats(log_seqs)  # user_ids hasn't been used yet
 
-        pos_embs = self.item_code(torch.LongTensor(pos_seqs).to(self.dev))
-        neg_embs = self.item_code(torch.LongTensor(neg_seqs).to(self.dev))
+        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
 
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
@@ -284,7 +156,7 @@ class SASRec(torch.nn.Module):
         # only use last QKV classifier, a waste
         final_feat = log_feats[:, -1, :]
 
-        item_embs = self.item_code(torch.LongTensor(
+        item_embs = self.item_emb(torch.LongTensor(
             item_indices).unsqueeze(0).to(self.dev))  # (U, I, C)
 
         logits = item_embs.matmul(final_feat.unsqueeze(-1)).squeeze(-1)
@@ -313,6 +185,17 @@ class GRU4Rec(torch.nn.Module):
         self.dropout_prob = args.dropout_rate
 
         # define layers and loss
+        # self.item_emb = torch.nn.Embedding(
+        #     self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb = QREmbeddingBag(
+            num_categories=self.item_num,
+            embedding_dim=args.hidden_units,
+            num_collisions=4,
+            operation="add",
+            sparse=True,
+            device=self.dev
+        )
+
         self.emb_dropout = nn.Dropout(self.dropout_prob)
         self.gru_layers = nn.GRU(
             input_size=self.embedding_size,
@@ -323,20 +206,6 @@ class GRU4Rec(torch.nn.Module):
         )
         self.dense = nn.Linear(self.hidden_size, self.embedding_size)
 
-        # our method
-        self.pq_m = args.segment
-        self.item_code = ItemCode(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
-
     def gather_indexes(self, output, gather_index):
         """Gathers the vectors at the specific positions over a minibatch"""
         gather_index = torch.tensor(
@@ -346,7 +215,7 @@ class GRU4Rec(torch.nn.Module):
 
     def calculate_loss(self, item_seq, item_seq_len):
         item_seq = item_seq.to(self.dev)
-        item_seq_emb = self.item_code(item_seq).to(self.dev)
+        item_seq_emb = self.item_emb(item_seq).to(self.dev)
         item_seq_emb_dropout = self.emb_dropout(item_seq_emb).to(self.dev)
         gru_output, _ = self.gru_layers(item_seq_emb_dropout)
         gru_output = self.dense(gru_output).to(self.dev)
@@ -360,8 +229,8 @@ class GRU4Rec(torch.nn.Module):
         seq_output = self.calculate_loss(item_seq, item_seq_len)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
-        pos_items_emb = self.item_code(pos_items)
-        neg_items_emb = self.item_code(neg_items)
+        pos_items_emb = self.item_emb(pos_items)
+        neg_items_emb = self.item_emb(neg_items)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
         return pos_score, neg_score
@@ -369,9 +238,9 @@ class GRU4Rec(torch.nn.Module):
     def predict(self, user_ids, log_seqs, item_idx):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = log_seqs.shape[1]
-        test_item = torch.LongTensor(item_idx).unsqueeze(0)
+        test_item = torch.LongTensor(item_idx).unsqueeze(0).to(self.dev)
         seq_output = self.calculate_loss(item_seq, item_seq_len)
-        test_item_emb = self.item_code(test_item).to(self.dev)
+        test_item_emb = self.item_emb(test_item).to(self.dev)
         scores = torch.matmul(seq_output, test_item_emb.squeeze(0).T)  # [B]
         return scores
 
@@ -379,7 +248,7 @@ class GRU4Rec(torch.nn.Module):
         item_seq = log_seqs.to(self.dev)
         item_seq_len = log_seqs.shape[1]
         seq_output = self.forward(item_seq, item_seq_len)
-        test_items_emb = self.item_code.weight.to(self.dev)
+        test_items_emb = self.item_emb.weight.to(self.dev)
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores
@@ -405,6 +274,17 @@ class NARM(torch.nn.Module):
         self.dropout_probs = args.dropout_rate
 
         # define layers and loss
+        # self.item_emb = torch.nn.Embedding(
+        #     self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb = QREmbeddingBag(
+            num_categories=self.item_num,
+            embedding_dim=args.hidden_units,
+            num_collisions=4,
+            operation="add",
+            sparse=True,
+            device=self.dev
+        )
+
         self.emb_dropout = nn.Dropout(self.dropout_probs)
         self.gru = nn.GRU(
             self.embedding_size,
@@ -420,20 +300,6 @@ class NARM(torch.nn.Module):
         self.b = nn.Linear(2 * self.hidden_size,
                            self.embedding_size, bias=False)
 
-        # our method
-        self.pq_m = args.segment
-        self.item_code = ItemCode(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
-
     def gather_indexes(self, output, gather_index):
         """Gathers the vectors at the specific positions over a minibatch"""
         gather_index = torch.tensor(gather_index).view(1, 1, 1).expand(
@@ -443,7 +309,7 @@ class NARM(torch.nn.Module):
 
     def get_embedding(self, item_seq, item_seq_len):
         item_seq = item_seq.to(self.dev)
-        item_seq_emb = self.item_code(item_seq).to(self.dev)
+        item_seq_emb = self.item_emb(item_seq).to(self.dev)
         item_seq_emb_dropout = self.emb_dropout(item_seq_emb).to(self.dev)
         gru_out, _ = self.gru(item_seq_emb_dropout)
 
@@ -468,8 +334,8 @@ class NARM(torch.nn.Module):
         seq_output = self.get_embedding(item_seq, item_seq_len)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
-        pos_items_emb = self.item_code(pos_items)
-        neg_items_emb = self.item_code(neg_items)
+        pos_items_emb = self.item_emb(pos_items)
+        neg_items_emb = self.item_emb(neg_items)
         seq_output = seq_output.unsqueeze(1)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
@@ -478,9 +344,9 @@ class NARM(torch.nn.Module):
     def predict(self, user_ids, log_seqs, item_idx):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = log_seqs.shape[1]
-        test_item = torch.LongTensor(item_idx).unsqueeze(0)
+        test_item = torch.LongTensor(item_idx).unsqueeze(0).to(self.dev)
         seq_output = self.get_embedding(item_seq, item_seq_len)
-        test_item_emb = self.item_code(test_item).to(self.dev)
+        test_item_emb = self.item_emb(test_item).to(self.dev)
         scores = torch.matmul(seq_output, test_item_emb.squeeze(0).T)  # [B]
         return scores
 
@@ -488,7 +354,7 @@ class NARM(torch.nn.Module):
         item_seq = log_seqs.to(self.dev)
         item_seq_len = log_seqs.shape[1]
         seq_output = self.forward(item_seq, item_seq_len)
-        test_items_emb = self.item_code.weight.to(self.dev)
+        test_items_emb = self.item_emb.weight.to(self.dev)
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores
@@ -579,6 +445,16 @@ class SRGNN(torch.nn.Module):
         self.step = 1
 
         # define layers and loss
+        # self.item_emb = torch.nn.Embedding(
+        #     self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb = QREmbeddingBag(
+            num_categories=self.item_num,
+            embedding_dim=args.hidden_units,
+            num_collisions=4,
+            operation="add",
+            sparse=True,
+            device=self.dev
+        )
         self.gnn = GNN(self.embedding_size, self.step)
         self.linear_one = nn.Linear(
             self.embedding_size, self.embedding_size, bias=True)
@@ -588,22 +464,6 @@ class SRGNN(torch.nn.Module):
         self.linear_transform = nn.Linear(
             self.embedding_size * 2, self.embedding_size, bias=True
         )
-
-        # our method
-        self.pq_m = args.segment
-        self.item_code = ItemCode(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        self.reduce = AdaptivePoolingReduction(
-            args.hidden_units, args.segment, "mean")
-        self.item_embeddings_padding_type = args.type
-        self.dataset_name = args.dataset.split("_")[0]
-        self.item_embeddings = torch.load(
-            f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        )
-        self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
-
-    # parameter initialize?
 
     def _get_slice(self, item_seq):
         # Mask matrix, shape of [batch_size, max_session_len]
@@ -652,7 +512,7 @@ class SRGNN(torch.nn.Module):
 
     def get_embedding(self, item_seq, item_seq_len):
         alias_inputs, A, items, mask = self._get_slice(item_seq)
-        hidden = self.item_code(items)
+        hidden = self.item_emb(items)
         hidden = self.gnn(A, hidden)
         alias_inputs = alias_inputs.view(-1, alias_inputs.size(1), 1).expand(
             -1, -1, self.embedding_size
@@ -675,8 +535,8 @@ class SRGNN(torch.nn.Module):
         seq_output = self.get_embedding(item_seq, item_seq_len)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
-        pos_items_emb = self.item_code(pos_items)
-        neg_items_emb = self.item_code(neg_items)
+        pos_items_emb = self.item_emb(pos_items)
+        neg_items_emb = self.item_emb(neg_items)
         seq_output = seq_output.unsqueeze(1)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
@@ -685,9 +545,9 @@ class SRGNN(torch.nn.Module):
     def predict(self, user_ids, log_seqs, item_idx):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = log_seqs.shape[1]
-        test_item = torch.LongTensor(item_idx).unsqueeze(0)
+        test_item = torch.LongTensor(item_idx).unsqueeze(0).to(self.dev)
         seq_output = self.get_embedding(item_seq, item_seq_len)
-        test_item_emb = self.item_code(test_item).to(self.dev)
+        test_item_emb = self.item_emb(test_item).to(self.dev)
         scores = torch.matmul(seq_output, test_item_emb.squeeze(0).T)  # [B]
         return scores
 
@@ -695,7 +555,7 @@ class SRGNN(torch.nn.Module):
         item_seq = log_seqs.to(self.dev)
         item_seq_len = log_seqs.shape[1]
         seq_output = self.forward(item_seq, item_seq_len)
-        test_items_emb = self.item_code.weight.to(self.dev)
+        test_items_emb = self.item_emb.weight.to(self.dev)
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores
@@ -714,8 +574,16 @@ class STAMP(torch.nn.Module):
         self.embedding_size = args.hidden_units
 
         # define layers and loss
-        self.item_embedding = nn.Embedding(
-            self.item_num, self.embedding_size, padding_idx=0
+        # self.item_emb = nn.Embedding(
+        #     self.item_num, self.embedding_size, padding_idx=0
+        # )
+        self.item_emb = QREmbeddingBag(
+            num_categories=self.item_num,
+            embedding_dim=args.hidden_units,
+            num_collisions=4,
+            operation="add",
+            sparse=True,
+            device=self.dev
         )
         self.w1 = nn.Linear(self.embedding_size,
                             self.embedding_size, bias=False)
@@ -733,20 +601,6 @@ class STAMP(torch.nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
 
-        # our method
-        self.pq_m = args.segment
-        self.item_code = ItemCode(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
-
     def gather_indexes(self, output, gather_index):
         """Gathers the vectors at the specific positions over a minibatch"""
         gather_index = torch.tensor(gather_index).view(1, 1, 1).expand(
@@ -755,7 +609,7 @@ class STAMP(torch.nn.Module):
         return output_tensor.squeeze(1)
 
     def get_embedding(self, item_seq, item_seq_len):
-        item_seq_emb = self.item_embedding(item_seq)
+        item_seq_emb = self.item_emb(item_seq)
         last_inputs = self.gather_indexes(item_seq_emb, item_seq_len - 1)
         org_memory = item_seq_emb
         item_seq_len = torch.tensor(item_seq_len).to(self.dev)
@@ -793,8 +647,8 @@ class STAMP(torch.nn.Module):
         seq_output = self.get_embedding(item_seq, item_seq_len)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
-        pos_items_emb = self.item_code(pos_items)
-        neg_items_emb = self.item_code(neg_items)
+        pos_items_emb = self.item_emb(pos_items)
+        neg_items_emb = self.item_emb(neg_items)
         seq_output = seq_output.unsqueeze(1)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
@@ -803,9 +657,9 @@ class STAMP(torch.nn.Module):
     def predict(self, user_ids, log_seqs, item_idx):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = log_seqs.shape[1]
-        test_item = torch.LongTensor(item_idx).unsqueeze(0)
+        test_item = torch.LongTensor(item_idx).unsqueeze(0).to(self.dev)
         seq_output = self.get_embedding(item_seq, item_seq_len)
-        test_item_emb = self.item_code(test_item).to(self.dev)
+        test_item_emb = self.item_emb(test_item).to(self.dev)
         scores = torch.matmul(seq_output, test_item_emb.squeeze(0).T)  # [B]
         return scores
 
@@ -813,7 +667,7 @@ class STAMP(torch.nn.Module):
         item_seq = log_seqs.to(self.dev)
         item_seq_len = log_seqs.shape[1]
         seq_output = self.forward(item_seq, item_seq_len)
-        test_items_emb = self.item_code.weight.to(self.dev)
+        test_items_emb = self.item_emb.weight.to(self.dev)
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores

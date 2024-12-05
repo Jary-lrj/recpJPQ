@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import entropy
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.spatial.distance import pdist, squareform
+from scipy.stats import spearmanr
 import seaborn as sns
 from typing import Union, Optional, List
 import os
@@ -9,12 +12,13 @@ import time
 
 
 def visualize_embedding(
+    method: str,
     embedding: Union[torch.Tensor, np.ndarray],
     output_filename: str,
     segment_size: int = 50,
     figsize: tuple = (20, 15),
     dpi: int = 300,
-    entropy_bins: int = 110,
+    entropy_bins: int = 50,
     cmap_entropy: str = "YlOrRd",
     cmap_corr: str = "coolwarm",
     save_statistics: bool = True,
@@ -43,8 +47,16 @@ def visualize_embedding(
     # Split embedding into segments
     segments = np.split(embedding_np, n_segments, axis=1)
 
+    for i, segment in enumerate(segments):
+        print(
+            f"Segment {i} stats: mean={np.mean(segment)}, std={np.std(segment)}")
+    print(f"NaN in segment: {np.isnan(segment).any()}")
+    print(f"Inf in segment: {np.isinf(segment).any()}")
+
     # Create figure
     plt.figure(figsize=figsize)
+
+    segments = [(seg - np.mean(seg)) / np.std(seg) for seg in segments]
 
     # 1. Calculate and plot segment entropies
     def calculate_segment_entropy(segment):
@@ -54,6 +66,7 @@ def visualize_embedding(
         vector_entropies = []
         for vector in segment:  # 遍历每个 50 维向量
             hist, _ = np.histogram(vector, bins=entropy_bins, density=True)
+            hist = hist / np.sum(hist)  # 确保 hist 是概率分布
             hist = hist + 1e-10  # 避免 log(0)
             vector_entropy = entropy(hist)
             vector_entropies.append(vector_entropy)
@@ -116,7 +129,26 @@ def visualize_embedding(
 
     # 4. Plot segment correlation matrix
     segment_means = np.array([np.mean(seg, axis=1) for seg in segments]).T
-    correlation_matrix = np.corrcoef(segment_means, rowvar=False)
+    if method == "cosine":
+        correlation_matrix = cosine_similarity(segment_means.T)
+    elif method == "linear":
+        correlation_matrix = np.corrcoef(segment_means, rowvar=False)
+    elif method == "euclidean":
+        distance_matrix = squareform(
+            pdist(segment_means.T, metric="euclidean"))
+        correlation_matrix = 1 / (1 + distance_matrix)  # 转换为相似性
+    elif method == "spearman":
+        n = segment_means.shape[1]
+        correlation_matrix = np.zeros((n, n))
+        for i in range(n):
+            for j in range(n):
+                correlation_matrix[i, j], _ = spearmanr(
+                    segment_means[:, i], segment_means[:, j])
+    else:
+        raise ValueError(
+            "Unsupported metric. Choose from 'linear', 'cosine', 'euclidean', 'spearman'.")
+    mask = np.triu(np.ones_like(
+        correlation_matrix, dtype=bool), k=1)  # 获取上三角位置
 
     plt.subplot(2, 2, 4)
     sns.heatmap(
@@ -129,6 +161,7 @@ def visualize_embedding(
         fmt=".2f",
         xticklabels=range(n_segments),
         yticklabels=range(n_segments),
+        mask=mask
     )
     plt.title("Segment Correlation Matrix", fontsize=12, pad=10)
     plt.xlabel("Segment Index")

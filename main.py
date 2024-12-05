@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec, GRU4Rec, NARM, SRGNN
+from model2 import SASRec, GRU4Rec, NARM, SRGNN, STAMP
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -80,12 +80,14 @@ if __name__ == "__main__":
         model = NARM(usernum, itemnum, args).to(args.device)
     elif args.model == "SRGNN":
         model = SRGNN(usernum, itemnum, args).to(args.device)
+    elif args.model == "STAMP":
+        model = STAMP(usernum, itemnum, args).to(args.device)
     else:
         raise ValueError("Invalid model name")
 
     for name, param in model.named_parameters():
         if param.requires_grad:
-            print(f"{name}: {param.numel()}")
+            print(f"{name}: {param.numel()}, {param.device}")
 
     # initialize item code
     # model.item_code.assign_codes_recJPQ(user_train)
@@ -160,7 +162,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_code.parameters():
+            for param in model.item_emb.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -255,21 +257,25 @@ if __name__ == "__main__":
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
             # save item embeddings with args.type, args.segment, and unique timestamp
-            if not os.path.isdir("item_embeddings"):
-                os.makedirs("item_embeddings")
-            item_embeddings = model.item_code.get_all_item_embeddings()
-            visualize_embedding(
-                item_embeddings,
-                output_filename=os.path.join(
-                    folder,
-                    f"{args.dataset}_{args.model}_{args.segment}_segment_{args.type}_{timestamp}.png",
-                ),
-                figsize=(20, 15),
-                dpi=300,
-                save_statistics=True,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-                segment_size=50,
-            )
+            try:
+                if not os.path.isdir("item_embeddings"):
+                    os.makedirs("item_embeddings")
+                item_embeddings = model.item_code.get_all_item_embeddings()
+                visualize_embedding(
+                    "euclidean",
+                    item_embeddings,
+                    output_filename=os.path.join(
+                        folder,
+                        f"{args.dataset}_{args.model}_{args.segment}_segment_{args.type}_{timestamp}.png",
+                    ),
+                    figsize=(20, 15),
+                    dpi=300,
+                    save_statistics=True,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    segment_size=50,
+                )
+            except Exception as e:
+                print("Failed. Error: ", e)
 
     f.close()
     sampler.close()
