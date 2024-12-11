@@ -62,8 +62,10 @@ class SASRec(torch.nn.Module):
 
         self.item_emb = torch.nn.Embedding(
             self.item_num, args.hidden_units, padding_idx=0)
-        self.cage = Cage(dim=args.hidden_units, entries=[
-            256, 256, 256, 256], alpha=1, beta=0.5)
+        self.item_emb.weight.data[0, :] = 0
+
+        # self.cage = Cage(dim=args.hidden_units, entries=[
+        #     256, 256, 256, 256], alpha=1, beta=0.5)
 
         # self.item_emb = QREmbeddingBag(
         #     num_categories=self.item_num,
@@ -76,6 +78,7 @@ class SASRec(torch.nn.Module):
 
         self.pos_emb = torch.nn.Embedding(
             args.maxlen + 1, args.hidden_units, padding_idx=0)
+        self.pos_emb.weight.data[0, :] = 0
         self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
 
         self.attention_layernorms = torch.nn.ModuleList()  # to be Q for self-attention
@@ -110,7 +113,7 @@ class SASRec(torch.nn.Module):
     ):  # TODO: fp64 and int64 as default in python, trim? Use Transformer get sequence feature?
         seqs = self.item_emb(torch.LongTensor(log_seqs).to(
             self.dev))  # (256, 200) -> (256, 200, 48)
-        seqs = self.cage(seqs)
+        # seqs = self.cage(seqs)
         seqs *= (self.embedding_size) ** 0.5
         poss = np.tile(
             np.arange(1, log_seqs.shape[1] + 1), [log_seqs.shape[0], 1])

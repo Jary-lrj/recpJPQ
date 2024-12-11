@@ -31,8 +31,9 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
         print("done")
 
         for i in range(self.item_code_bytes):
-            discretizer = KBinsDiscretizer(n_bins=256, encode="ordinal", strategy="quantile")
-            ith_component = item_embeddings[i : i + 1][0]
+            discretizer = KBinsDiscretizer(
+                n_bins=256, encode="ordinal", strategy="quantile")
+            ith_component = item_embeddings[i: i + 1][0]
             ith_component = (ith_component - ith_component.min()) / (
                 ith_component.max() - ith_component.min() + 1e-10
             )
@@ -41,8 +42,10 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
             ith_component += noise  # make sure that every item has unique value
 
             ith_component = ith_component.unsqueeze(1).cpu().numpy()
-            component_assignments = discretizer.fit_transform(ith_component).astype("uint8")[:, 0]
-            assignments.append(torch.from_numpy(component_assignments).to(self.device))
+            component_assignments = discretizer.fit_transform(
+                ith_component).astype("uint8")[:, 0]
+            assignments.append(torch.from_numpy(
+                component_assignments).to(self.device))
 
         final_tensor = torch.stack(assignments).t()
         print("KBinsDiscretizer done")

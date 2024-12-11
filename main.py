@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model2 import SASRec, GRU4Rec, NARM, SRGNN, STAMP
+from model import SASRec, GRU4Rec, NARM, SRGNN, STAMP
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -89,9 +89,6 @@ if __name__ == "__main__":
         if param.requires_grad:
             print(f"{name}: {param.numel()}, {param.device}")
 
-    # initialize item code
-    # model.item_code.assign_codes_recJPQ(user_train)
-
     for name, param in model.named_parameters():
         try:
             # Initialize with a constant value of 0.02
@@ -104,6 +101,13 @@ if __name__ == "__main__":
 
     # this fails embedding init 'Embedding' object has no attribute 'dim'
     # model.apply(torch.nn.init.xavier_uniform_)
+
+    codebook_t0 = time.time()
+    original_embedding = model.item_code.assign(user_train)
+    model.item_code.assign_codes_KMeans(original_embedding)
+    codebook_t1 = time.time()
+    f.write(
+        f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     model.train()  # enable model training
 
@@ -162,7 +166,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_emb.parameters():
+            for param in model.item_code.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -270,6 +274,13 @@ if __name__ == "__main__":
                 if not os.path.isdir("item_embeddings"):
                     os.makedirs("item_embeddings")
                 item_embeddings = model.item_code.get_all_item_embeddings()
+
+                # reconstruction loss
+                f.write(
+                    f"reconstruction loss(MSE): {model.item_code.reconstruct_loss(original_embedding, item_embeddings).item()}")
+                f.write("\n")
+                f.write(f"Time per epoch: {T / epoch:.2f} seconds")
+                # visualize item embeddings
                 visualize_embedding(
                     "euclidean",
                     item_embeddings,
