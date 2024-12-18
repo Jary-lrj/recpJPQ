@@ -77,9 +77,9 @@ class QREmbedding(nn.Module):
 
         if _weight is None:
             self.weight_q = nn.Embedding(
-                self.num_embeddings[0], self.embedding_dim[0], device=self.device)
+                self.num_embeddings[0], self.embedding_dim[0], device=self.device, padding_idx=0)
             self.weight_r = nn.Embedding(
-                self.num_embeddings[1], self.embedding_dim[1], device=self.device)
+                self.num_embeddings[1], self.embedding_dim[1], device=self.device, padding_idx=0)
             self.reset_parameters()
         else:
             self.weight_q = nn.Embedding.from_pretrained(_weight[0])

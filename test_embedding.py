@@ -227,12 +227,15 @@ def plot_loss_curve(model, loss_list, dataset, segment, type_):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
     directory = "loss_fig"
-    if not os.path.isdir(directory):
-        os.makedirs(directory)
+    # Create directory with current date
+    date_str = time.strftime("%Y-%m-%d")
+    date_directory = os.path.join(directory, date_str)
+    if not os.path.isdir(date_directory):
+        os.makedirs(date_directory)
 
     fname = f"loss_{model}_{dataset}_{segment}_segment_{type_}_{timestamp}.png"
+    save_path = os.path.join(date_directory, fname)
 
-    save_path = os.path.join(directory, fname)
     plt.savefig(save_path)
 
     return save_path

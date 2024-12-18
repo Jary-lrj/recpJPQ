@@ -193,6 +193,7 @@ class GRU4Rec(torch.nn.Module):
         # define layers and loss
         self.item_emb = torch.nn.Embedding(
             self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb.weight.data[0, :] = 0
         self.cage = Cage(dim=args.hidden_units, entries=[
             256, 256, 256, 256], alpha=1, beta=0.5)
 
@@ -225,6 +226,7 @@ class GRU4Rec(torch.nn.Module):
     def calculate_loss(self, item_seq, item_seq_len):
         item_seq = item_seq.to(self.dev)
         item_seq_emb = self.item_emb(item_seq).to(self.dev)
+        item_seq_emb = self.cage(item_seq_emb).to(self.dev)
         item_seq_emb_dropout = self.emb_dropout(item_seq_emb).to(self.dev)
         gru_output, _ = self.gru_layers(item_seq_emb_dropout)
         gru_output = self.dense(gru_output).to(self.dev)
@@ -261,6 +263,10 @@ class GRU4Rec(torch.nn.Module):
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1))  # [B, n_items]
         return scores
+
+    def get_all_item_embeddings(self):
+        ids = torch.arange(0, self.item_num, device=self.dev).long()
+        return self.item_emb(ids)
 
 
 class NARM(torch.nn.Module):

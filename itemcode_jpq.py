@@ -13,7 +13,7 @@ class ItemCodeJPQ(torch.nn.Module):
         self.embedding_size = embedding_size
         self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
         self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
-        self.vals_per_dim = 128
+        self.vals_per_dim = 256
         self.base_type = torch.int
         self.item_codes = torch.zeros(
             size=(

@@ -82,6 +82,8 @@ class ItemCodeDPQ(torch.nn.Module):
             centers = torch.from_numpy(kmeans.cluster_centers_).float()
             self.centroids.data[i] = centers.to(self.device)
 
+        np.save('random.npy', self.item_codes.cpu().numpy())
+
     def forward(self, input_ids):
         input_ids = input_ids.to(self.device)
         batch_size, sequence_length = input_ids.shape

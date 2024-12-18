@@ -19,7 +19,7 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
         # Convert to PyTorch sparse tensor
         indices = torch.LongTensor([rows, cols]).to(self.device)
         values = torch.FloatTensor(vals).to(self.device)
-        shape = (len(train_users), self.num_items + 1)
+        shape = (len(train_users), self.num_items)
         matr = torch.sparse_coo_tensor(indices, values, shape).to(self.device)
 
         print("fitting svd for initial centroids assignments")
@@ -38,7 +38,7 @@ class SVDAssignmentStrategy(CentroidAssignmentStragety):
                 ith_component.max() - ith_component.min() + 1e-10
             )
 
-            noise = torch.randn(self.num_items + 1, device=self.device) * 1e-5
+            noise = torch.randn(self.num_items, device=self.device) * 1e-5
             ith_component += noise  # make sure that every item has unique value
 
             ith_component = ith_component.unsqueeze(1).cpu().numpy()

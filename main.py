@@ -58,10 +58,13 @@ if __name__ == "__main__":
     print("average sequence length: %.2f" % (cc / len(user_train)))
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = os.path.join(args.dataset + "_" +
+                           args.train_dir, timestamp.split('-')[0])
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
     f = open(
         os.path.join(
-            args.dataset + "_" +
-            args.train_dir, f"log_{timestamp}_{args.model}_{args.dataset}_{args.segment}_segment_{args.type}.txt"
+            log_dir, f"log_{timestamp}_{args.model}_{args.dataset}_{args.segment}_segment_{args.type}.txt"
         ),
         "w",
     )
@@ -102,9 +105,24 @@ if __name__ == "__main__":
     # this fails embedding init 'Embedding' object has no attribute 'dim'
     # model.apply(torch.nn.init.xavier_uniform_)
 
+    # preprocessing for JPQ
+    # codebook_t0 = time.time()
+    # model.item_code.assign_codes_recJPQ(user_train)
+    # codebook_t1 = time.time()
+    # f.write(
+    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
+
+    # preprocessing for DPQ
+    # codebook_t0 = time.time()
+    # initial_embedding = model.item_code.assign(user_train)
+    # model.item_code.assign_codes_KMeans(initial_embedding)
+    # codebook_t1 = time.time()
+    # f.write(
+    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
+
+    # preprocessing for ours
     codebook_t0 = time.time()
-    original_embedding = model.item_code.assign(user_train)
-    model.item_code.assign_codes_KMeans(original_embedding)
+    model.recat_build_codebook()
     codebook_t1 = time.time()
     f.write(
         f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
@@ -142,6 +160,8 @@ if __name__ == "__main__":
 
     best_val_ndcg, best_val_hr, best_val_mrr = 0.0, 0.0, 0.0
     best_test_ndcg, best_test_hr, best_test_mrr = 0.0, 0.0, 0.0
+    NDCGs = []
+    NDCGv = []
     T = 0.0
     t0 = time.time()
 
@@ -200,6 +220,8 @@ if __name__ == "__main__":
             print(f"  - NDCG@10: {t_test[1]:.4f}")
             print(f"  - HR@10:   {t_test[2]:.4f}")
             print("-" * 50)
+            NDCGv.append(t_valid[1])
+            NDCGs.append(t_test[1])
             if (
                 t_valid[0] > best_val_mrr
                 or t_valid[1] > best_val_ndcg
@@ -255,6 +277,12 @@ if __name__ == "__main__":
             f.write(f"  - MRR:  {best_test_mrr:.4f}\n")
             f.write(f"  - NDCG: {best_test_ndcg:.4f}\n")
             f.write(f"  - HR:   {best_test_hr:.4f}\n")
+            max_ndcg_v_index = NDCGv.index(max(NDCGv))
+            corresponding_ndcg_s = NDCGs[max_ndcg_v_index]
+            f.write(
+                f"Corresponding test NDCG by max valid NDCG: {corresponding_ndcg_s:.4f}\n")
+            f.write(f"Average NDCG: {sum(NDCGs) / len(NDCGs):.4f}\n")
+            f.write(f"Time Per Epoch: {T / epoch:.2f} seconds\n")
             folder = args.dataset + "_" + args.train_dir
             fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
             fname = fname.format(
@@ -269,6 +297,28 @@ if __name__ == "__main__":
                 timestamp,
             )
             torch.save(model.state_dict(), os.path.join(folder, fname))
+            # when dealing with baseline, we need to save the embeddings
+            try:
+                if not os.path.isdir(f"item_embeddings/{args.dataset}"):
+                    os.makedirs(f"item_embeddings/{args.dataset}")
+                if args.type == "base":
+                    torch.save(model.item_emb.weight.data,
+                               f"item_embeddings/{args.dataset}/{args.model}_base.pth")
+                elif args.type == "QR":
+                    original_embedding = torch.load(
+                        f"item_embeddings/{args.dataset}/{args.model}_base.pth")
+                    item_embeddings = model.get_all_item_embeddings()
+                    f.write(
+                        f"reconstruction loss(MSE): {((original_embedding - item_embeddings) ** 2).mean().item()}")
+                else:
+                    original_embedding = torch.load(
+                        f"item_embeddings/{args.dataset}/{args.model}_base.pth")
+                    # item_embeddings = model.item_emb.weight.data
+                    item_embeddings = model.item_code.get_all_item_embeddings()
+                    f.write(
+                        f"reconstruction loss(MSE): {((original_embedding - item_embeddings) ** 2).mean().item()}")
+            except Exception as e:
+                print("Save base embedding failed. Error: ", e)
             # save item embeddings with args.type, args.segment, and unique timestamp
             try:
                 if not os.path.isdir("item_embeddings"):
