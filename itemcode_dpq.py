@@ -64,6 +64,20 @@ class ItemCodeDPQ(torch.nn.Module):
         item_embeddings = torch.from_numpy(svd.components_).to(self.device)
         item_embeddings = item_embeddings.T
         item_embeddings[0, :] = 0.0
+
+        processed_components = []
+
+        # Normalize each component: same as recJPQ
+        for i in range(self.item_code_bytes):
+            ith_component = item_embeddings[:, i*50:(i+1)*50]
+            ith_component_min = ith_component.min(dim=1, keepdim=True).values
+            ith_component_max = ith_component.max(dim=1, keepdim=True).values
+            ith_component = (ith_component - ith_component_min) / (
+                ith_component_max - ith_component_min + 1e-10)
+            noise = torch.randn_like(ith_component, device=self.device) * 1e-5
+            ith_component += noise
+            processed_components.append(ith_component)
+        item_embeddings = torch.cat(processed_components, dim=1)
         return item_embeddings
 
     # KMeans-based method
@@ -81,8 +95,6 @@ class ItemCodeDPQ(torch.nn.Module):
                 cluster_labels.astype(np.int32)).to(self.device)
             centers = torch.from_numpy(kmeans.cluster_centers_).float()
             self.centroids.data[i] = centers.to(self.device)
-
-        np.save('random.npy', self.item_codes.cpu().numpy())
 
     def forward(self, input_ids):
         input_ids = input_ids.to(self.device)

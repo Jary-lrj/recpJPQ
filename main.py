@@ -7,6 +7,7 @@ from model import SASRec, GRU4Rec, NARM, SRGNN, STAMP
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 def str2bool(s):
@@ -113,19 +114,19 @@ if __name__ == "__main__":
     #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     # preprocessing for DPQ
-    # codebook_t0 = time.time()
-    # initial_embedding = model.item_code.assign(user_train)
-    # model.item_code.assign_codes_KMeans(initial_embedding)
-    # codebook_t1 = time.time()
-    # f.write(
-    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
-
-    # preprocessing for ours
+    initial_embedding = model.item_code.assign(user_train)
     codebook_t0 = time.time()
-    model.recat_build_codebook()
+    model.item_code.assign_codes_KMeans(initial_embedding)
     codebook_t1 = time.time()
     f.write(
         f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
+
+    # preprocessing for ours
+    # codebook_t0 = time.time()
+    # model.recat_build_codebook()
+    # codebook_t1 = time.time()
+    # f.write(
+    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     model.train()  # enable model training
 
@@ -160,6 +161,8 @@ if __name__ == "__main__":
 
     best_val_ndcg, best_val_hr, best_val_mrr = 0.0, 0.0, 0.0
     best_test_ndcg, best_test_hr, best_test_mrr = 0.0, 0.0, 0.0
+    HRs = []
+    HRv = []
     NDCGs = []
     NDCGv = []
     T = 0.0
@@ -222,6 +225,8 @@ if __name__ == "__main__":
             print("-" * 50)
             NDCGv.append(t_valid[1])
             NDCGs.append(t_test[1])
+            HRv.append(t_valid[2])
+            HRs.append(t_test[2])
             if (
                 t_valid[0] > best_val_mrr
                 or t_valid[1] > best_val_ndcg
@@ -236,20 +241,7 @@ if __name__ == "__main__":
                 best_test_mrr = max(t_test[0], best_test_mrr)
                 best_test_ndcg = max(t_test[1], best_test_ndcg)
                 best_test_hr = max(t_test[2], best_test_hr)
-                folder = args.dataset + "_" + args.train_dir
-                fname = "best_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
-                fname = fname.format(
-                    args.model,
-                    args.type,
-                    epoch,
-                    args.lr,
-                    args.num_blocks,
-                    args.num_heads,
-                    args.hidden_units,
-                    args.maxlen,
-                    timestamp,
-                )
-                torch.save(model.state_dict(), os.path.join(folder, fname))
+
             print("-" * 50)
             print("Current Best Results:")
             print(f"  Validation Metrics:")
@@ -278,12 +270,17 @@ if __name__ == "__main__":
             f.write(f"  - NDCG: {best_test_ndcg:.4f}\n")
             f.write(f"  - HR:   {best_test_hr:.4f}\n")
             max_ndcg_v_index = NDCGv.index(max(NDCGv))
+            max_hr_v_index = HRv.index(max(HRv))
             corresponding_ndcg_s = NDCGs[max_ndcg_v_index]
+            corresponding_hr_s = HRs[max_hr_v_index]
             f.write(
                 f"Corresponding test NDCG by max valid NDCG: {corresponding_ndcg_s:.4f}\n")
+            f.write(
+                f"Corresponding test HR by max valid HR: {corresponding_hr_s:.4f}\n")
             f.write(f"Average NDCG: {sum(NDCGs) / len(NDCGs):.4f}\n")
+            f.write(f"Average HR: {sum(HRs) / len(HRs):.4f}\n")
             f.write(f"Time Per Epoch: {T / epoch:.2f} seconds\n")
-            folder = args.dataset + "_" + args.train_dir
+            folder = log_dir
             fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
             fname = fname.format(
                 args.model,
@@ -299,43 +296,27 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), os.path.join(folder, fname))
             # when dealing with baseline, we need to save the embeddings
             try:
-                if not os.path.isdir(f"item_embeddings/{args.dataset}"):
-                    os.makedirs(f"item_embeddings/{args.dataset}")
                 if args.type == "base":
-                    torch.save(model.item_emb.weight.data,
-                               f"item_embeddings/{args.dataset}/{args.model}_base.pth")
+                    item_embeddings = model.item_emb.weight
                 elif args.type == "QR":
-                    original_embedding = torch.load(
-                        f"item_embeddings/{args.dataset}/{args.model}_base.pth")
                     item_embeddings = model.get_all_item_embeddings()
-                    f.write(
-                        f"reconstruction loss(MSE): {((original_embedding - item_embeddings) ** 2).mean().item()}")
                 else:
-                    original_embedding = torch.load(
-                        f"item_embeddings/{args.dataset}/{args.model}_base.pth")
-                    # item_embeddings = model.item_emb.weight.data
                     item_embeddings = model.item_code.get_all_item_embeddings()
-                    f.write(
-                        f"reconstruction loss(MSE): {((original_embedding - item_embeddings) ** 2).mean().item()}")
-            except Exception as e:
-                print("Save base embedding failed. Error: ", e)
-            # save item embeddings with args.type, args.segment, and unique timestamp
-            try:
-                if not os.path.isdir("item_embeddings"):
-                    os.makedirs("item_embeddings")
-                item_embeddings = model.item_code.get_all_item_embeddings()
 
-                # reconstruction loss
+                similarity_matrix = cosine_similarity(
+                    item_embeddings.detach().cpu().numpy())
+                np.fill_diagonal(similarity_matrix, 0)
+                avg_nearest_neighbor_similarity = np.mean(
+                    np.max(similarity_matrix, axis=1))
                 f.write(
-                    f"reconstruction loss(MSE): {model.item_code.reconstruct_loss(original_embedding, item_embeddings).item()}")
-                f.write("\n")
+                    f"CECS: {avg_nearest_neighbor_similarity:.4}\n")
                 f.write(f"Time per epoch: {T / epoch:.2f} seconds")
-                # visualize item embeddings
+                print("Visualizing Embeddings...")
                 visualize_embedding(
                     "euclidean",
                     item_embeddings,
                     output_filename=os.path.join(
-                        folder,
+                        log_dir,
                         f"{args.dataset}_{args.model}_{args.segment}_segment_{args.type}_{timestamp}.png",
                     ),
                     figsize=(20, 15),
@@ -344,6 +325,7 @@ if __name__ == "__main__":
                     device="cuda" if torch.cuda.is_available() else "cpu",
                     segment_size=50,
                 )
+                print("Visulize Done.")
             except Exception as e:
                 print("Failed. Error: ", e)
 

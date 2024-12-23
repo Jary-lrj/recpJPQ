@@ -70,6 +70,7 @@ class SASRec(torch.nn.Module):
         self.user_num = user_num
         self.item_num = item_num + 1
         self.dev = args.device
+        self.args = args
 
         # TODO: loss += args.l2_emb for regularizing embedding vectors during training
         # https://stackoverflow.com/questions/42704283/adding-l1-l2-regularization-in-pytorch
@@ -87,19 +88,13 @@ class SASRec(torch.nn.Module):
         self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-12)
 
         self.pq_m = args.segment
-        # self.item_code = ItemCodeJPQ(
-        #     self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        self.item_code = ItemCodeDPQ(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
+
+        if args.type == "DPQ":
+            self.item_code = ItemCodeDPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        else:
+            self.item_code = ItemCodeJPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
 
         for _ in range(args.num_blocks):
             new_attn_layernorm = torch.nn.LayerNorm(
@@ -120,6 +115,28 @@ class SASRec(torch.nn.Module):
 
             # self.pos_sigmoid = torch.nn.Sigmoid()
             # self.neg_sigmoid = torch.nn.Sigmoid()
+
+    def min_max_norm(self, glove_embeddings):
+        min_vals = glove_embeddings.min(dim=1, keepdim=True).values
+        max_vals = glove_embeddings.max(dim=1, keepdim=True).values
+        range_vals = max_vals - min_vals
+        range_vals = torch.where(range_vals == 0, torch.tensor(
+            1.0), range_vals)
+        min_max_normalized_embeddings = (
+            glove_embeddings - min_vals) / range_vals
+        return min_max_normalized_embeddings
+
+    def recat_build_codebook(self):
+        self.reduce = AdaptivePoolingReduction(
+            self.args.hidden_units, self.args.segment, "mean")
+        self.item_embeddings_padding_type = self.args.type
+        self.dataset_name = self.args.dataset.split("_")[0]
+        self.item_embeddings = torch.load(
+            f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
+        )
+        self.item_embeddings = self.min_max_norm(self.item_embeddings)
+        self.reduced_item_embeddings = self.reduce(self.item_embeddings)
+        self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
     def log2feats(
         self, log_seqs
@@ -216,8 +233,22 @@ class GRU4Rec(torch.nn.Module):
 
         # our method
         self.pq_m = args.segment
-        self.item_code = ItemCodeJPQ(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        if args.type == "DPQ":
+            self.item_code = ItemCodeDPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        else:
+            self.item_code = ItemCodeJPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+
+    def min_max_norm(self, glove_embeddings):
+        min_vals = glove_embeddings.min(dim=1, keepdim=True).values
+        max_vals = glove_embeddings.max(dim=1, keepdim=True).values
+        range_vals = max_vals - min_vals
+        range_vals = torch.where(range_vals == 0, torch.tensor(
+            1.0), range_vals)
+        min_max_normalized_embeddings = (
+            glove_embeddings - min_vals) / range_vals
+        return min_max_normalized_embeddings
 
     def recat_build_codebook(self):
         self.reduce = AdaptivePoolingReduction(
@@ -227,6 +258,7 @@ class GRU4Rec(torch.nn.Module):
         self.item_embeddings = torch.load(
             f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
         )
+        self.item_embeddings = self.min_max_norm(self.item_embeddings)
         self.reduced_item_embeddings = self.reduce(self.item_embeddings)
         self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
@@ -290,6 +322,7 @@ class NARM(torch.nn.Module):
         self.user_num = user_num
         self.item_num = item_num + 1
         self.dev = args.device
+        self.args = args
 
         # load parameters info
         self.embedding_size = args.hidden_units
@@ -315,17 +348,12 @@ class NARM(torch.nn.Module):
 
         # our method
         self.pq_m = args.segment
-        self.item_code = ItemCodeDPQ(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
+        if args.type == "DPQ":
+            self.item_code = ItemCodeDPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        else:
+            self.item_code = ItemCodeJPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
 
     def gather_indexes(self, output, gather_index):
         """Gathers the vectors at the specific positions over a minibatch"""
@@ -333,6 +361,28 @@ class NARM(torch.nn.Module):
             output.shape[0], -1, output.shape[-1]).to(self.dev)
         output_tensor = output.gather(dim=1, index=gather_index).to(self.dev)
         return output_tensor.squeeze(1)
+
+    def min_max_norm(self, glove_embeddings):
+        min_vals = glove_embeddings.min(dim=1, keepdim=True).values
+        max_vals = glove_embeddings.max(dim=1, keepdim=True).values
+        range_vals = max_vals - min_vals
+        range_vals = torch.where(range_vals == 0, torch.tensor(
+            1.0), range_vals)
+        min_max_normalized_embeddings = (
+            glove_embeddings - min_vals) / range_vals
+        return min_max_normalized_embeddings
+
+    def recat_build_codebook(self):
+        self.reduce = AdaptivePoolingReduction(
+            self.args.hidden_units, self.args.segment, "mean")
+        self.item_embeddings_padding_type = self.args.type
+        self.dataset_name = self.args.dataset.split("_")[0]
+        self.item_embeddings = torch.load(
+            f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
+        )
+        self.item_embeddings = self.min_max_norm(self.item_embeddings)
+        self.reduced_item_embeddings = self.reduce(self.item_embeddings)
+        self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
     def get_embedding(self, item_seq, item_seq_len):
         item_seq = item_seq.to(self.dev)
@@ -466,6 +516,7 @@ class SRGNN(torch.nn.Module):
         self.user_num = user_num
         self.item_num = item_num + 1
         self.dev = args.device
+        self.args = args
 
         # load parameters info
         self.embedding_size = args.hidden_units
@@ -484,19 +535,34 @@ class SRGNN(torch.nn.Module):
 
         # our method
         self.pq_m = args.segment
-        self.item_code = ItemCodeDPQ(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
+        if args.type == "DPQ":
+            self.item_code = ItemCodeDPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        else:
+            self.item_code = ItemCodeJPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
 
-    # parameter initialize?
+    def min_max_norm(self, glove_embeddings):
+        min_vals = glove_embeddings.min(dim=1, keepdim=True).values
+        max_vals = glove_embeddings.max(dim=1, keepdim=True).values
+        range_vals = max_vals - min_vals
+        range_vals = torch.where(range_vals == 0, torch.tensor(
+            1.0), range_vals)
+        min_max_normalized_embeddings = (
+            glove_embeddings - min_vals) / range_vals
+        return min_max_normalized_embeddings
+
+    def recat_build_codebook(self):
+        self.reduce = AdaptivePoolingReduction(
+            self.args.hidden_units, self.args.segment, "mean")
+        self.item_embeddings_padding_type = self.args.type
+        self.dataset_name = self.args.dataset.split("_")[0]
+        self.item_embeddings = torch.load(
+            f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
+        )
+        self.item_embeddings = self.min_max_norm(self.item_embeddings)
+        self.reduced_item_embeddings = self.reduce(self.item_embeddings)
+        self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
     def _get_slice(self, item_seq):
         # Mask matrix, shape of [batch_size, max_session_len]
@@ -602,6 +668,7 @@ class STAMP(torch.nn.Module):
         self.user_num = user_num
         self.item_num = item_num + 1
         self.dev = args.device
+        self.args = args
 
         # load parameters info
         self.embedding_size = args.hidden_units
@@ -624,17 +691,12 @@ class STAMP(torch.nn.Module):
 
         # our method
         self.pq_m = args.segment
-        self.item_code = ItemCodeDPQ(
-            self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
-        # self.reduce = AdaptivePoolingReduction(
-        #     args.hidden_units, args.segment, "mean")
-        # self.item_embeddings_padding_type = args.type
-        # self.dataset_name = args.dataset.split("_")[0]
-        # self.item_embeddings = torch.load(
-        #     f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
-        # )
-        # self.reduced_item_embeddings = self.reduce(self.item_embeddings)
-        # self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
+        if args.type == "DPQ":
+            self.item_code = ItemCodeDPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
+        else:
+            self.item_code = ItemCodeJPQ(
+                self.pq_m, args.hidden_units, self.item_num, args.maxlen, args.device)
 
     def gather_indexes(self, output, gather_index):
         """Gathers the vectors at the specific positions over a minibatch"""
@@ -642,6 +704,28 @@ class STAMP(torch.nn.Module):
             output.shape[0], -1, output.shape[-1]).to(self.dev)
         output_tensor = output.gather(dim=1, index=gather_index).to(self.dev)
         return output_tensor.squeeze(1)
+
+    def min_max_norm(self, glove_embeddings):
+        min_vals = glove_embeddings.min(dim=1, keepdim=True).values
+        max_vals = glove_embeddings.max(dim=1, keepdim=True).values
+        range_vals = max_vals - min_vals
+        range_vals = torch.where(range_vals == 0, torch.tensor(
+            1.0), range_vals)
+        min_max_normalized_embeddings = (
+            glove_embeddings - min_vals) / range_vals
+        return min_max_normalized_embeddings
+
+    def recat_build_codebook(self):
+        self.reduce = AdaptivePoolingReduction(
+            self.args.hidden_units, self.args.segment, "mean")
+        self.item_embeddings_padding_type = self.args.type
+        self.dataset_name = self.args.dataset.split("_")[0]
+        self.item_embeddings = torch.load(
+            f"./glove_embedding/{self.dataset_name}/{self.pq_m}_seg/{self.item_embeddings_padding_type}.pt"
+        )
+        self.item_embeddings = self.min_max_norm(self.item_embeddings)
+        self.reduced_item_embeddings = self.reduce(self.item_embeddings)
+        self.item_code.assign_codes_reduced(self.reduced_item_embeddings)
 
     def get_embedding(self, item_seq, item_seq_len):
         item_seq_emb = self.item_code(item_seq)

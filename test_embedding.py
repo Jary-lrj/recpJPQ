@@ -47,12 +47,6 @@ def visualize_embedding(
     # Split embedding into segments
     segments = np.split(embedding_np, n_segments, axis=1)
 
-    for i, segment in enumerate(segments):
-        print(
-            f"Segment {i} stats: mean={np.mean(segment)}, std={np.std(segment)}")
-    print(f"NaN in segment: {np.isnan(segment).any()}")
-    print(f"Inf in segment: {np.isinf(segment).any()}")
-
     # Create figure
     plt.figure(figsize=figsize)
 
