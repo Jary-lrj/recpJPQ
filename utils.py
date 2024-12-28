@@ -137,25 +137,26 @@ def data_partition(fname):
 
 # TODO: merge evaluate functions for test and val set
 # evaluate on test set
-def evaluate(model, dataset, args):
-    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
 
-    NDCG = 0.0
-    HT = 0.0
+def evaluate(model, dataset, args, K_list):
+    [train, valid, test, usernum, itemnum] = dataset
+
+    NDCG = np.zeros(len(K_list))
+    HT = np.zeros(len(K_list))
     MRR = 0.0
     valid_user = 0.0
 
     if usernum > 10000:
-        users = random.sample(range(1, usernum + 1), 10000)
+        users = np.random.choice(range(1, usernum + 1), 10000, replace=False)
     else:
         users = range(1, usernum + 1)
 
+    zero_array = np.zeros([args.maxlen], dtype=np.int32)
     for u in users:
-
         if len(train[u]) < 1 or len(test[u]) < 1:
             continue
 
-        seq = np.zeros([args.maxlen], dtype=np.int32)
+        seq = zero_array.copy()
         idx = args.maxlen - 1
         seq[idx] = valid[u][0]
         idx -= 1
@@ -167,57 +168,121 @@ def evaluate(model, dataset, args):
 
         rated = set(train[u])
         rated.add(0)
-        all_items = set(range(1, itemnum + 1))
-        unrated_items = list(all_items - rated)
-        sampled_items = random.sample(unrated_items, 100)
+        all_items = np.arange(1, itemnum + 1)
+        unrated_items = np.setdiff1d(
+            all_items, list(rated), assume_unique=True)
+        sampled_items = np.random.choice(unrated_items, 99, replace=False)
         target_item = test[u][0]
         if target_item not in sampled_items:
             sampled_items[-1] = target_item
-        item_idx = sampled_items.copy()
 
-        # for _ in range(100):
-        #     t = np.random.randint(1, itemnum + 1)
-        #     while t in rated:
-        #         t = np.random.randint(1, itemnum + 1)
-        #     item_idx.append(t)
+        item_idx = np.array(sampled_items)
+        predictions = -model.predict(
+            np.array([u]), np.array([seq]), item_idx.reshape(1, -1)
+        )[0]
 
-        predictions = -model.predict(*[np.array(l)
-                                     for l in [[u], [seq], item_idx]])
-        predictions = predictions[0]  # - for 1st argsort DESC
+        if isinstance(predictions, torch.Tensor):
+            predictions = predictions.detach().cpu().numpy()
 
-        rank = predictions.argsort().argsort()[0].item()
+        rank = predictions.argsort().argsort()[0]
+
         valid_user += 1
 
-        if rank < 10:
-            NDCG += 1 / np.log2(rank + 2)
-            HT += 1
-            MRR += 1 / (rank + 1)
-        if valid_user % 100 == 0:
-            print(".", end="")
-            sys.stdout.flush()
+        for i, K in enumerate(K_list):
+            if rank < K:
+                NDCG[i] += 1 / np.log2(rank + 2)
+                HT[i] += 1
 
+        if valid_user % 100 == 0:
+            print(f"Processed {valid_user} users...", end="\r")
+
+    # 返回结果
     return MRR / valid_user, NDCG / valid_user, HT / valid_user
+
+# def evaluate(model, dataset, args, K):
+#     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+#     NDCG = 0.0
+#     HT = 0.0
+#     MRR = 0.0
+#     valid_user = 0.0
+
+#     if usernum > 10000:
+#         users = random.sample(range(1, usernum + 1), 10000)
+#     else:
+#         users = range(1, usernum + 1)
+
+#     for u in users:
+
+#         if len(train[u]) < 1 or len(test[u]) < 1:
+#             continue
+
+#         seq = np.zeros([args.maxlen], dtype=np.int32)
+#         idx = args.maxlen - 1
+#         seq[idx] = valid[u][0]
+#         idx -= 1
+#         for i in reversed(train[u]):
+#             seq[idx] = i
+#             idx -= 1
+#             if idx == -1:
+#                 break
+
+#         rated = set(train[u])
+#         rated.add(0)
+#         all_items = set(range(1, itemnum + 1))
+#         unrated_items = list(all_items - rated)
+#         sampled_items = random.sample(unrated_items, 99)
+#         target_item = test[u][0]
+#         if target_item not in sampled_items:
+#             sampled_items[-1] = target_item
+#         item_idx = sampled_items.copy()
+
+#         # for _ in range(100):
+#         #     t = np.random.randint(1, itemnum + 1)
+#         #     while t in rated:
+#         #         t = np.random.randint(1, itemnum + 1)
+#         #     item_idx.append(t)
+
+#         predictions = -model.predict(*[np.array(l)
+#                                      for l in [[u], [seq], item_idx]])
+#         predictions = predictions[0]  # - for 1st argsort DESC
+
+#         rank = predictions.argsort().argsort()[0].item()
+#         valid_user += 1
+
+#         if rank < K:
+#             NDCG += 1 / np.log2(rank + 2)
+#             HT += 1
+#             MRR += 1 / (rank + 1)
+#         if valid_user % 100 == 0:
+#             print(".", end="")
+#             sys.stdout.flush()
+
+#     return MRR / valid_user, NDCG / valid_user, HT / valid_user
 
 
 # evaluate on val set
-def evaluate_valid(model, dataset, args):
-    [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
 
-    NDCG = 0.0
-    HT = 0.0
+def evaluate_valid(model, dataset, args, K_list):
+    [train, valid, test, usernum, itemnum] = dataset
+
+    NDCG = np.zeros(len(K_list))
+    HT = np.zeros(len(K_list))
     MRR = 0.0
     valid_user = 0.0
 
     if usernum > 10000:
-        users = random.sample(range(1, usernum + 1), 10000)
+        users = np.random.choice(range(1, usernum + 1), 10000, replace=False)
     else:
         users = range(1, usernum + 1)
+
+    zero_array = np.zeros([args.maxlen], dtype=np.int32)
 
     for u in users:
         if len(train[u]) < 1 or len(valid[u]) < 1:
             continue
 
-        seq = np.zeros([args.maxlen], dtype=np.int32)
+        seq = zero_array.copy()
         idx = args.maxlen - 1
         for i in reversed(train[u]):
             seq[idx] = i
@@ -225,38 +290,96 @@ def evaluate_valid(model, dataset, args):
             if idx == -1:
                 break
 
-        # 构造候选item集合（改为所有item）
-        # rated = set(train[u])
-        # rated.add(0)
-        # item_idx = list(range(1, itemnum + 1))  # 包含所有 items
-        # item_idx = [i for i in item_idx if i not in rated]  # 排除已交互 items
-        # item_idx.insert(0, valid[u][0])  # add valid item
         rated = set(train[u])
         rated.add(0)
-        all_items = set(range(1, itemnum + 1))
-        unrated_items = list(all_items - rated)
-        sampled_items = random.sample(unrated_items, 100)
-        target_item = test[u][0]
+        all_items = np.arange(1, itemnum + 1)
+        unrated_items = np.setdiff1d(all_items, list(
+            rated), assume_unique=True)
+        sampled_items = np.random.choice(
+            unrated_items, 99, replace=False)
+        target_item = valid[u][0]
         if target_item not in sampled_items:
             sampled_items[-1] = target_item
-        item_idx = sampled_items.copy()
 
-        predictions = -model.predict(*[np.array(l)
-                                     for l in [[u], [seq], item_idx]])
-        predictions = predictions[0]
+        item_idx = np.array(sampled_items)
+        predictions = -model.predict(
+            np.array([u]), np.array([seq]), item_idx.reshape(1, -1)
+        )[0]
 
-        rank = predictions.argsort().argsort()[0].item()
+        if isinstance(predictions, torch.Tensor):
+            predictions = predictions.detach().cpu().numpy()
+
+        rank = predictions.argsort().argsort()[0]
+
         valid_user += 1
 
-        if rank < 10:
-            NDCG += 1 / np.log2(rank + 2)
-            HT += 1
-            MRR += 1 / (rank + 1)
+        for i, K in enumerate(K_list):
+            if rank < K:
+                NDCG[i] += 1 / np.log2(rank + 2)
+                HT[i] += 1
+
         if valid_user % 100 == 0:
-            print(".", end="")
-            sys.stdout.flush()
+            print(f"Processed {valid_user} users...", end="\r")
 
     return MRR / valid_user, NDCG / valid_user, HT / valid_user
+
+# def evaluate_valid(model, dataset, args, K):
+#     [train, valid, test, usernum, itemnum] = copy.deepcopy(dataset)
+
+#     NDCG = 0.0
+#     HT = 0.0
+#     MRR = 0.0
+#     valid_user = 0.0
+
+#     if usernum > 10000:
+#         users = random.sample(range(1, usernum + 1), 10000)
+#     else:
+#         users = range(1, usernum + 1)
+
+#     for u in users:
+#         if len(train[u]) < 1 or len(valid[u]) < 1:
+#             continue
+
+#         seq = np.zeros([args.maxlen], dtype=np.int32)
+#         idx = args.maxlen - 1
+#         for i in reversed(train[u]):
+#             seq[idx] = i
+#             idx -= 1
+#             if idx == -1:
+#                 break
+
+#         # 构造候选item集合（改为所有item）
+#         # rated = set(train[u])
+#         # rated.add(0)
+#         # item_idx = list(range(1, itemnum + 1))  # 包含所有 items
+#         # item_idx = [i for i in item_idx if i not in rated]  # 排除已交互 items
+#         # item_idx.insert(0, valid[u][0])  # add valid item
+#         rated = set(train[u])
+#         rated.add(0)
+#         all_items = set(range(1, itemnum + 1))
+#         unrated_items = list(all_items - rated)
+#         sampled_items = random.sample(unrated_items, 99)
+#         target_item = test[u][0]
+#         if target_item not in sampled_items:
+#             sampled_items[-1] = target_item
+#         item_idx = sampled_items.copy()
+
+#         predictions = -model.predict(*[np.array(l)
+#                                      for l in [[u], [seq], item_idx]])
+#         predictions = predictions[0]
+
+#         rank = predictions.argsort().argsort()[0].item()
+#         valid_user += 1
+
+#         if rank < K:
+#             NDCG += 1 / np.log2(rank + 2)
+#             HT += 1
+#             MRR += 1 / (rank + 1)
+#         if valid_user % 100 == 0:
+#             print(".", end="")
+#             sys.stdout.flush()
+
+#     return MRR / valid_user, NDCG / valid_user, HT / valid_user
 
 
 def evaluate_all(model, dataset, args, eval_set="test"):

@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec, GRU4Rec, NARM, SRGNN, STAMP
+from model2 import SASRec, GRU4Rec, NARM, Caser, STAMP
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
@@ -82,8 +82,8 @@ if __name__ == "__main__":
         model = GRU4Rec(usernum, itemnum, args).to(args.device)
     elif args.model == "NARM":
         model = NARM(usernum, itemnum, args).to(args.device)
-    elif args.model == "SRGNN":
-        model = SRGNN(usernum, itemnum, args).to(args.device)
+    elif args.model == "Caser":
+        model = Caser(usernum, itemnum, args).to(args.device)
     elif args.model == "STAMP":
         model = STAMP(usernum, itemnum, args).to(args.device)
     else:
@@ -93,12 +93,8 @@ if __name__ == "__main__":
         if param.requires_grad:
             print(f"{name}: {param.numel()}, {param.device}")
 
-    for name, param in model.named_parameters():
-        try:
-            # Initialize with a constant value of 0.02
-            torch.nn.init.constant_(param.data, 0.02)
-        except:
-            pass  # just ignore those failed init layers
+    # for name, param in model.item_code.named_parameters():
+    #     torch.nn.init.kaiming_normal_(param.data)
 
     # model.pos_emb.weight.data[0, :] = 0
     # model.item_emb.weight.data[0, :] = 0
@@ -114,12 +110,12 @@ if __name__ == "__main__":
     #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     # preprocessing for DPQ
-    initial_embedding = model.item_code.assign(user_train)
-    codebook_t0 = time.time()
-    model.item_code.assign_codes_KMeans(initial_embedding)
-    codebook_t1 = time.time()
-    f.write(
-        f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
+    # initial_embedding = model.item_code.assign(user_train)
+    # codebook_t0 = time.time()
+    # model.item_code.assign_codes_soft(initial_embedding)
+    # codebook_t1 = time.time()
+    # f.write(
+    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     # preprocessing for ours
     # codebook_t0 = time.time()
@@ -161,10 +157,8 @@ if __name__ == "__main__":
 
     best_val_ndcg, best_val_hr, best_val_mrr = 0.0, 0.0, 0.0
     best_test_ndcg, best_test_hr, best_test_mrr = 0.0, 0.0, 0.0
-    HRs = []
-    HRv = []
-    NDCGs = []
-    NDCGv = []
+    HR5, HR10 = [], []
+    NDCG5, NDCG10 = [], []
     T = 0.0
     t0 = time.time()
 
@@ -189,7 +183,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_code.parameters():
+            for param in model.item_emb.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -205,8 +199,10 @@ if __name__ == "__main__":
             T += t1
             print("Evaluating", end="")
             # t_train = evaluate_all(model, dataset, args, "train")
-            t_test = evaluate(model, dataset, args)
-            t_valid = evaluate_valid(model, dataset, args)
+            K_list = [5, 10]
+            result_valid = evaluate_valid(model, dataset, args, K_list)
+            result_test = evaluate(model, dataset, args, K_list)
+
             # print(
             #     "epoch:%d, time: %f(s), train (NDCG@10: %.4f, HR@10: %.4f), valid (NDCG@10: %.4f, HR@10: %.4f), test (NDCG@10: %.4f, HR@10: %.4f)"
             #     % (epoch, T, t_train[0], t_train[1], t_valid[0], t_valid[1], t_test[0], t_test[1])
@@ -215,70 +211,29 @@ if __name__ == "__main__":
             print(f"Epoch: {epoch}")
             print(f"Time Taken: {T:.2f} seconds")
             print("Validation Metrics:")
-            print(f"  - MRR@10:  {t_valid[0]:.4f}")
-            print(f"  - NDCG@10: {t_valid[1]:.4f}")
-            print(f"  - HR@10:   {t_valid[2]:.4f}")
+            print(
+                f"  - NDCG,HR @5: {result_valid[1][0]:.4f}, {result_valid[2][0]:.4f}")
+            print(
+                f"  - NDCG,HR @10:   {result_valid[1][1]:.4f}, {result_valid[2][1]:.4f}")
             print("Test Metrics:")
-            print(f"  - MRR@10:  {t_test[0]:.4f}")
-            print(f"  - NDCG@10: {t_test[1]:.4f}")
-            print(f"  - HR@10:   {t_test[2]:.4f}")
+            print(
+                f"  - NDCG,HR @5: {result_test[1][0]:.4f}, {result_test[2][0]:.4f}")
+            print(
+                f"  - NDCG,HR @10:   {result_test[1][1]:.4f}, {result_test[2][1]:.4f}")
             print("-" * 50)
-            NDCGv.append(t_valid[1])
-            NDCGs.append(t_test[1])
-            HRv.append(t_valid[2])
-            HRs.append(t_test[2])
-            if (
-                t_valid[0] > best_val_mrr
-                or t_valid[1] > best_val_ndcg
-                or t_valid[2] > best_val_hr
-                or t_test[0] > best_test_mrr
-                or t_test[1] > best_test_ndcg
-                or t_test[2] > best_test_hr
-            ):
-                best_val_mrr = max(t_valid[0], best_val_mrr)
-                best_val_ndcg = max(t_valid[1], best_val_ndcg)
-                best_val_hr = max(t_valid[2], best_val_hr)
-                best_test_mrr = max(t_test[0], best_test_mrr)
-                best_test_ndcg = max(t_test[1], best_test_ndcg)
-                best_test_hr = max(t_test[2], best_test_hr)
-
-            print("-" * 50)
-            print("Current Best Results:")
-            print(f"  Validation Metrics:")
-            print(f"    - MRR:  {best_val_mrr:.4f}")
-            print(f"    - NDCG: {best_val_ndcg:.4f}")
-            print(f"    - HR:   {best_val_hr:.4f}")
-            print(f"  Test Metrics:")
-            print(f"    - MRR:  {best_test_mrr:.4f}")
-            print(f"    - NDCG: {best_test_ndcg:.4f}")
-            print(f"    - HR:   {best_test_hr:.4f}")
-            print("-" * 50)
-            f.write(str(epoch) + " " + str(t_valid) + " " +
-                    str(t_test) + str(avg_loss) + "\n")
+            NDCG5.append(result_test[1][0])
+            NDCG10.append(result_test[1][1])
+            HR5.append(result_test[2][0])
+            HR10.append(result_test[2][1])
             f.flush()
             t0 = time.time()
             model.train()
 
         if epoch == args.num_epochs:
-            f.write("best results\n")
-            f.write(f"Validation Metrics:\n")
-            f.write(f"  - MRR:  {best_val_mrr:.4f}\n")
-            f.write(f"  - NDCG: {best_val_ndcg:.4f}\n")
-            f.write(f"  - HR:   {best_val_hr:.4f}\n")
-            f.write(f"Test Metrics:\n")
-            f.write(f"  - MRR:  {best_test_mrr:.4f}\n")
-            f.write(f"  - NDCG: {best_test_ndcg:.4f}\n")
-            f.write(f"  - HR:   {best_test_hr:.4f}\n")
-            max_ndcg_v_index = NDCGv.index(max(NDCGv))
-            max_hr_v_index = HRv.index(max(HRv))
-            corresponding_ndcg_s = NDCGs[max_ndcg_v_index]
-            corresponding_hr_s = HRs[max_hr_v_index]
             f.write(
-                f"Corresponding test NDCG by max valid NDCG: {corresponding_ndcg_s:.4f}\n")
+                f"Average NDCG@5, HR@5: {sum(NDCG5) / len(NDCG5):.4f}, {sum(HR5) / len(HR5):.4f}\n")
             f.write(
-                f"Corresponding test HR by max valid HR: {corresponding_hr_s:.4f}\n")
-            f.write(f"Average NDCG: {sum(NDCGs) / len(NDCGs):.4f}\n")
-            f.write(f"Average HR: {sum(HRs) / len(HRs):.4f}\n")
+                f"Average NDCG@10, HR@10: {sum(NDCG10) / len(NDCG10):.4f}, {sum(HR10) / len(HR10):.4f}\n")
             f.write(f"Time Per Epoch: {T / epoch:.2f} seconds\n")
             folder = log_dir
             fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
@@ -300,18 +255,16 @@ if __name__ == "__main__":
                     item_embeddings = model.item_emb.weight
                 elif args.type == "QR":
                     item_embeddings = model.get_all_item_embeddings()
+                elif args.type == "cage":
+                    item_embeddings = model.get_cage_item_embeddings()
                 else:
                     item_embeddings = model.item_code.get_all_item_embeddings()
 
-                similarity_matrix = cosine_similarity(
-                    item_embeddings.detach().cpu().numpy())
-                np.fill_diagonal(similarity_matrix, 0)
-                avg_nearest_neighbor_similarity = np.mean(
-                    np.max(similarity_matrix, axis=1))
-                f.write(
-                    f"CECS: {avg_nearest_neighbor_similarity:.4}\n")
-                f.write(f"Time per epoch: {T / epoch:.2f} seconds")
-                print("Visualizing Embeddings...")
+                embed_dir = f"item_embedding/{args.dataset}/{args.model}"
+                os.makedirs(embed_dir, exist_ok=True)
+                file_path = os.path.join(embed_dir, f"{args.type}.pth")
+                torch.save(item_embeddings, file_path)
+
                 visualize_embedding(
                     "euclidean",
                     item_embeddings,

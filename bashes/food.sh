@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # 定义模型列表
-models=("GRU4Rec" "NARM" "STAMP" "SASRec" "SRGNN")
+# models=("GRU4Rec" "NARM" "STAMP" "SASRec" "SRGNN")
+models=("SASRec")
 
 # 切换到上一级目录
 cd ..

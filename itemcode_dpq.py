@@ -3,9 +3,12 @@ from strategy.svd import SVDAssignmentStrategy
 from sklearn.cluster import KMeans
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
+import torch.nn as nn
+import torch.nn.functional as F
+from scipy.sparse.linalg import svds
 
 
-class ItemCodeDPQ(torch.nn.Module):
+class ItemCodeDPQ(nn.Module):
     def __init__(self, pq_m, embedding_size, num_items, sequence_length, device):
         super(ItemCodeDPQ, self).__init__()
         self.device = device
@@ -14,116 +17,124 @@ class ItemCodeDPQ(torch.nn.Module):
         self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
         self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
         self.vals_per_dim = 256
-        self.base_type = torch.int
-        self.item_codes = torch.zeros(
-            size=(
-                num_items, self.item_code_bytes), dtype=self.base_type, device=self.device
-        )  # trainable?
-        self.centroids = torch.nn.Parameter(
+        self.base_type = torch.float  # Changed to float for differentiability
+
+        # Trainable item codes (initialized randomly, now trainable)
+        self.item_codes = nn.Parameter(
+            torch.randn(num_items, self.item_code_bytes,
+                        device=self.device)
+        )
+
+        # Trainable centroids
+        self.centroids = nn.Parameter(
             torch.randn(self.item_code_bytes, self.vals_per_dim,
                         self.sub_embedding_size, device=self.device)
         )
-        self.n_centroids = [self.vals_per_dim] * self.pq_m
-        self.item_codes_strategy = SVDAssignmentStrategy(
-            self.item_code_bytes, num_items, self.device)
         self.sequence_length = sequence_length
         self.num_items = num_items
+        self.original_embeddings = None
 
     def get_all_item_embeddings(self):
-        codes = self.item_codes[1:]
+        """Generate all item embeddings using hard assignments and centroids."""
         embeddings = []
+
         for i in range(self.item_code_bytes):
-            code_indices = codes[:, i].long()
-            embedding = self.centroids[i][code_indices]
+
+            hard_assignments = self.item_codes[:, i].long()
+
+            assignment_probs = F.one_hot(
+                hard_assignments, num_classes=self.vals_per_dim).float()
+
+            embedding = torch.matmul(assignment_probs, self.centroids[i])
+
             embeddings.append(embedding)
+
         all_embeddings = torch.cat(embeddings, dim=-1)
-        all_embeddings = torch.cat(
-            [torch.zeros(1, self.embedding_size, device=self.device), all_embeddings], dim=0
-        )
         return all_embeddings
 
     def assign(self, train_users):
-        rows = []
-        cols = []
-        vals = []
-        for user, item_set in train_users.items():
-            for item in item_set:
-                rows.append(user - 1)
-                cols.append(item)
-                vals.append(1)
 
-        # Convert to PyTorch sparse tensor
-        indices = torch.LongTensor([rows, cols]).to(self.device)
-        values = torch.FloatTensor(vals).to(self.device)
-        shape = (len(train_users), self.num_items)
-        matr = torch.sparse_coo_tensor(indices, values, shape).to(self.device)
+        user_item_pairs = [(user - 1, item)
+                           for user, items in train_users.items() for item in items]
+        user_item_pairs = np.array(user_item_pairs, dtype=np.int64)
+        rows, cols = user_item_pairs[:, 0], user_item_pairs[:, 1]
+        vals = np.ones(len(rows), dtype=np.float32)
 
-        print("fitting svd for initial centroids assignments")
-        svd = TruncatedSVD(n_components=self.embedding_size)
-        svd.fit(matr.cpu().to_dense().numpy())
-        item_embeddings = torch.from_numpy(svd.components_).to(self.device)
-        item_embeddings = item_embeddings.T
-        item_embeddings[0, :] = 0.0
+        from scipy.sparse import coo_matrix
+        sparse_matr = coo_matrix((vals, (rows, cols)), shape=(
+            len(train_users), self.num_items))
 
-        processed_components = []
+        from scipy.sparse.linalg import svds
+        U, S, Vt = svds(sparse_matr, k=self.embedding_size)
 
-        # Normalize each component: same as recJPQ
-        for i in range(self.item_code_bytes):
-            ith_component = item_embeddings[:, i*50:(i+1)*50]
-            ith_component_min = ith_component.min(dim=1, keepdim=True).values
-            ith_component_max = ith_component.max(dim=1, keepdim=True).values
-            ith_component = (ith_component - ith_component_min) / (
-                ith_component_max - ith_component_min + 1e-10)
-            noise = torch.randn_like(ith_component, device=self.device) * 1e-5
-            ith_component += noise
-            processed_components.append(ith_component)
-        item_embeddings = torch.cat(processed_components, dim=1)
-        return item_embeddings
+        item_embeddings = torch.tensor(Vt.T, device=self.device)
 
-    # KMeans-based method
-    def assign_codes_KMeans(self, item_embeddings=None):
+        reshaped_embeddings = item_embeddings.view(
+            self.num_items, self.item_code_bytes, self.sub_embedding_size)
+
+        min_vals = reshaped_embeddings.min(dim=2, keepdim=True).values
+        max_vals = reshaped_embeddings.max(dim=2, keepdim=True).values
+        normalized_embeddings = (
+            reshaped_embeddings - min_vals) / (max_vals - min_vals + 1e-10)
+
+        noise = torch.normal(
+            mean=0.0, std=1e-5, size=normalized_embeddings.shape, device=self.device)
+        final_embeddings = (normalized_embeddings +
+                            noise).view(self.num_items, -1)
+
+        return final_embeddings
+
+    def assign_codes_soft(self, item_embeddings):
         reshaped_embeddings = item_embeddings.reshape(
             self.num_items, self.item_code_bytes, self.sub_embedding_size
         )
+
         for i in range(self.item_code_bytes):
-            subspace_data = reshaped_embeddings[:, i, :].cpu().numpy()
-            kmeans = KMeans(
-                n_init=10, n_clusters=self.n_centroids[i], random_state=42)
-            kmeans.fit(subspace_data)
-            cluster_labels = kmeans.predict(subspace_data)
-            self.item_codes[:, i] = torch.from_numpy(
-                cluster_labels.astype(np.int32)).to(self.device)
-            centers = torch.from_numpy(kmeans.cluster_centers_).float()
-            self.centroids.data[i] = centers.to(self.device)
+            subspace_embeddings = reshaped_embeddings[:, i]
+            subspace_centroids = self.centroids[i]
+
+            # 计算欧几里得距离
+            distances = torch.cdist(
+                subspace_embeddings, subspace_centroids, p=2)
+            distances = torch.clamp(distances, min=1e-6, max=1e6)  # 限制数值范围
+
+            # 计算分配概率
+            assignment_probs = F.softmax(-distances, dim=-1)
+
+            # 硬分配
+            hard_assignments = torch.argmax(assignment_probs, dim=-1)
+
+            # 更新 item_codes，避免使用 .data
+            with torch.no_grad():
+                self.item_codes[:, i] = hard_assignments
 
     def forward(self, input_ids):
+        """
+        Forward pass for embedding generation.
+        input_ids: Tensor of shape (batch_size, sequence_length)
+        """
         input_ids = input_ids.to(self.device)
         batch_size, sequence_length = input_ids.shape
-        n_centroids = self.n_centroids
-        input_codes = self.item_codes[input_ids].detach().int()
+
+        embeddings = []
         for i in range(self.item_code_bytes):
-            input_codes[:, :, i] = torch.clamp(
-                input_codes[:, :, i], max=n_centroids[i] - 1)
-        code_byte_indices = torch.arange(
-            self.item_code_bytes, device=self.device).unsqueeze(0).unsqueeze(0)
-        code_byte_indices = code_byte_indices.repeat(
-            batch_size, sequence_length, 1)
-        n_sub_embeddings = batch_size * sequence_length * self.item_code_bytes
-        code_byte_indices_reshaped = code_byte_indices.reshape(
-            n_sub_embeddings)
-        input_codes_reshaped = input_codes.reshape(n_sub_embeddings)
-        indices = torch.stack(
-            [code_byte_indices_reshaped, input_codes_reshaped], dim=-1)
-        input_sub_embeddings_reshaped = self.centroids[indices[:,
-                                                               0], indices[:, 1]]
-        result = input_sub_embeddings_reshaped.reshape(
-            batch_size, sequence_length, self.item_code_bytes * self.sub_embedding_size
-        )
-        # Handle number 0 item
-        mask = (input_ids == 0).unsqueeze(-1).repeat(1, 1,
-                                                     self.item_code_bytes * self.sub_embedding_size)
+
+            item_codes = self.item_codes[input_ids, i].long()
+
+            item_codes = torch.clamp(
+                item_codes, min=0, max=self.vals_per_dim - 1)
+
+            item_codes = item_codes.view(-1)
+
+            probs = F.one_hot(
+                item_codes, num_classes=self.vals_per_dim).float()
+
+            probs = probs.view(batch_size, sequence_length, self.vals_per_dim)
+
+            embedding = torch.einsum("bsk,kd->bsd", probs, self.centroids[i])
+            embeddings.append(embedding)
+
+        result = torch.cat(embeddings, dim=-1)
+        mask = (input_ids == 0).unsqueeze(-1).repeat(1, 1, self.embedding_size)
         result[mask] = 0.0
         return result
-
-    def reconstruct_loss(self, original_embedding, reconstructed_embedding):
-        return torch.nn.functional.mse_loss(reconstructed_embedding, original_embedding)

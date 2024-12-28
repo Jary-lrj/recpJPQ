@@ -24,7 +24,7 @@ class Cage(CageModule):
             entries = [int(x) for x in entries.split('-')]
 
         self.embed_dim = dim
-        self.vocab_size = 1
+        self.vocab_size = 10366
         self.num_layers = -1  # type: int
         self.cluster_sizes = entries  # type: list[int]
         self.weighted_add = alpha
@@ -75,9 +75,10 @@ class Cage(CageModule):
     def quantize(
             self,
             embeds,
-            with_loss=False,
+            with_loss=True,
     ) -> CageQuantization:
         compare_embeds = embeds  # for loss calculation
+
         shape = embeds.shape
         embeds = embeds.view(-1, self.embed_dim)  # [B * ..., D]
         qembeds = []
@@ -102,7 +103,7 @@ class Cage(CageModule):
             output.mean += embeds * self.weighted_add
 
         if not with_loss:
-            return output.mean
+            return output
 
         q_loss = torch.tensor(0, dtype=torch.float, device=embeds.device)
         for i in range(self.num_layers):
@@ -134,3 +135,9 @@ class Cage(CageModule):
 
     def __call__(self, *args, **kwargs):
         return self.quantize(*args, **kwargs)
+
+
+if __name__ == "main":
+    tensor = torch.randn(10)
+    cage = Cage(dim=10, entries=[10, 10])
+    print(cage(tensor))

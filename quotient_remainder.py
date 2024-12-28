@@ -77,9 +77,9 @@ class QREmbedding(nn.Module):
 
         if _weight is None:
             self.weight_q = nn.Embedding(
-                self.num_embeddings[0], self.embedding_dim[0], device=self.device, padding_idx=0)
+                self.num_embeddings[0], self.embedding_dim[0], device=self.device)
             self.weight_r = nn.Embedding(
-                self.num_embeddings[1], self.embedding_dim[1], device=self.device, padding_idx=0)
+                self.num_embeddings[1], self.embedding_dim[1], device=self.device)
             self.reset_parameters()
         else:
             self.weight_q = nn.Embedding.from_pretrained(_weight[0])
@@ -105,6 +105,9 @@ class QREmbedding(nn.Module):
         elif self.operation == "mult":
             embed = embed_q * embed_r
 
+        mask = (input == 0).unsqueeze(-1)
+        embed = embed * (~mask)
+
         return embed
 
     def extra_repr(self):
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         sparse=True
     )
 
-    input = torch.LongTensor([[0, 1, 2, 3]]).to('cuda:0')
+    input = torch.LongTensor([[0, 1, 2, 3]])
     print(input.shape)
     embed = qr_embedding(input)
     print(embed[0])
