@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 定义模型列表
-models=("GRU4Rec" "NARM" "Caser" "STAMP")
+models=("NARM")
 
 # 定义数据集列表及其对应的dropout率
 declare -A datasets_dropout=(
@@ -27,7 +27,7 @@ for dataset in "${!datasets_dropout[@]}"; do
             --dataset="$dataset" \
             --segment=4 \
             --hidden_units=200 \
-            --type=base \
+            --type=cage \
             --num_epochs=200 \
             --train_dir=default \
             --maxlen=50 \

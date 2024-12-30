@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 定义模型列表
-models=("Caser")
+models=("GRU4Rec")
 
 # 切换到上一级目录
 cd ..
@@ -16,7 +16,7 @@ for model in "${models[@]}"; do
         --dataset=beauty_geq4 \
         --segment=4 \
         --hidden_units=200 \
-        --type=DPQ \
+        --type=cage \
         --num_epochs=200 \
         --train_dir=default \
         --maxlen=50 \

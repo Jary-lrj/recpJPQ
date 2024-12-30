@@ -664,9 +664,10 @@ class STAMP(torch.nn.Module):
     def predict(self, user_ids, log_seqs, item_idx):
         item_seq = torch.LongTensor(log_seqs).to(
             self.dev)  # Shape: [batch_size, seq_len]
+        item_seq_len = item_seq.shape[1]
         test_items = torch.LongTensor(item_idx).to(
             self.dev)  # Shape: [batch_size, num_items]
-        seq_output = self.get_embedding(item_seq)
+        seq_output = self.get_embedding(item_seq, item_seq_len)
         test_item_emb = self.item_code(test_items)
         scores = torch.bmm(test_item_emb, seq_output.unsqueeze(-1)).squeeze(-1)
         return scores

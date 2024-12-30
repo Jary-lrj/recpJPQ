@@ -93,18 +93,14 @@ class ItemCodeDPQ(nn.Module):
             subspace_embeddings = reshaped_embeddings[:, i]
             subspace_centroids = self.centroids[i]
 
-            # 计算欧几里得距离
             distances = torch.cdist(
                 subspace_embeddings, subspace_centroids, p=2)
-            distances = torch.clamp(distances, min=1e-6, max=1e6)  # 限制数值范围
+            distances = torch.clamp(distances, min=1e-6, max=1e6)
 
-            # 计算分配概率
             assignment_probs = F.softmax(-distances, dim=-1)
 
-            # 硬分配
             hard_assignments = torch.argmax(assignment_probs, dim=-1)
 
-            # 更新 item_codes，避免使用 .data
             with torch.no_grad():
                 self.item_codes[:, i] = hard_assignments
 

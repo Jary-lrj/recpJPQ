@@ -200,7 +200,8 @@ if __name__ == "__main__":
             print("Evaluating", end="")
             # t_train = evaluate_all(model, dataset, args, "train")
             K_list = [5, 10]
-            result_valid = evaluate_valid(model, dataset, args, K_list)
+            result_valid = evaluate_valid(
+                model, dataset, args, K_list)  # mrr, ndcg, hr
             result_test = evaluate(model, dataset, args, K_list)
 
             # print(

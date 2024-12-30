@@ -196,21 +196,21 @@ class GRU4Rec(torch.nn.Module):
         self.dropout_prob = args.dropout_rate
 
         # define layers and loss
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num, args.hidden_units, padding_idx=0)
-        # self.item_emb.weight.data[0, :] = 0
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb.weight.data[0, :] = 0
 
-        # self.cage = Cage(dim=args.hidden_units, entries=[
-        #     256, 128, 64, 32], alpha=1, beta=0.25)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 64, 16, 4], alpha=1, beta=0.25, vocab_size=self.item_num)
 
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
 
         self.emb_dropout = nn.Dropout(self.dropout_prob)
         self.gru_layers = nn.GRU(
@@ -243,10 +243,13 @@ class GRU4Rec(torch.nn.Module):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = item_seq.shape[1]
         seq_output = self.get_embedding(item_seq, item_seq_len)
+        seq_output, loss1 = self.cage(seq_output)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
         pos_items_emb = self.item_emb(pos_items)
+        pos_items_emb, loss2 = self.cage(pos_items_emb)
         neg_items_emb = self.item_emb(neg_items)
+        neg_items_emb, loss3 = self.cage(neg_items_emb)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
         return pos_score, neg_score
@@ -258,7 +261,9 @@ class GRU4Rec(torch.nn.Module):
         test_items = torch.LongTensor(item_idx).to(
             self.dev)  # Shape: [batch_size, num_items]
         seq_output = self.get_embedding(item_seq, item_seq_len)
+        seq_output, _ = self.cage(seq_output)
         test_item_emb = self.item_emb(test_items)
+        test_item_emb, _ = self.cage(test_item_emb)
         scores = torch.bmm(test_item_emb, seq_output.unsqueeze(-1)).squeeze(-1)
         return scores
 
@@ -278,7 +283,8 @@ class GRU4Rec(torch.nn.Module):
 
     def get_cage_item_embeddings(self):
         embs = self.get_all_item_embeddings()
-        return self.cage(embs)
+        cage_embs, _ = self.cage(embs)
+        return cage_embs
 
 
 class NARM(torch.nn.Module):
@@ -301,21 +307,21 @@ class NARM(torch.nn.Module):
         self.dropout_probs = args.dropout_rate
 
         # define layers and loss
-        # self.item_emb = torch.nn.Embedding(
-        #     self.item_num, args.hidden_units, padding_idx=0)
-        # self.item_emb.weight.data[0, :] = 0
+        self.item_emb = torch.nn.Embedding(
+            self.item_num, args.hidden_units, padding_idx=0)
+        self.item_emb.weight.data[0, :] = 0
 
-        # self.cage = Cage(dim=args.hidden_units, entries=[
-        #     256, 256, 256, 256], alpha=1, beta=0.5)
+        self.cage = Cage(dim=args.hidden_units, entries=[
+            256, 256, 256, 256], alpha=1, beta=0.25, vocab_size=self.item_num)
 
-        self.item_emb = QREmbeddingBag(
-            num_categories=self.item_num,
-            embedding_dim=args.hidden_units,
-            num_collisions=4,
-            operation="add",
-            sparse=True,
-            device=self.dev
-        )
+        # self.item_emb = QREmbeddingBag(
+        #     num_categories=self.item_num,
+        #     embedding_dim=args.hidden_units,
+        #     num_collisions=4,
+        #     operation="add",
+        #     sparse=True,
+        #     device=self.dev
+        # )
 
         self.emb_dropout = nn.Dropout(self.dropout_probs)
         self.gru = nn.GRU(
@@ -364,10 +370,13 @@ class NARM(torch.nn.Module):
         item_seq = torch.LongTensor(log_seqs).to(self.dev)
         item_seq_len = item_seq.shape[1]
         seq_output = self.get_embedding(item_seq, item_seq_len)
+        seq_output, _ = self.cage(seq_output)
         pos_items = torch.LongTensor(pos_seqs).to(self.dev)
         neg_items = torch.LongTensor(neg_seqs).to(self.dev)
         pos_items_emb = self.item_emb(pos_items)
+        pos_items_emb, _ = self.cage(pos_items_emb)
         neg_items_emb = self.item_emb(neg_items)
+        neg_items_emb, _ = self.cage(neg_items_emb)
         seq_output = seq_output.unsqueeze(1)
         pos_score = torch.sum(seq_output * pos_items_emb, dim=-1)  # [B]
         neg_score = torch.sum(seq_output * neg_items_emb, dim=-1)  # [B]
@@ -380,7 +389,9 @@ class NARM(torch.nn.Module):
         test_items = torch.LongTensor(item_idx).to(
             self.dev)  # Shape: [batch_size, num_items]
         seq_output = self.get_embedding(item_seq, item_seq_len)
+        seq_output, _ = self.cage(seq_output)
         test_item_emb = self.item_emb(test_items)
+        test_item_emb, _ = self.cage(test_item_emb)
         scores = torch.bmm(test_item_emb, seq_output.unsqueeze(-1)).squeeze(-1)
         return scores
 
@@ -422,9 +433,11 @@ class Caser(nn.Module):
 
         # our method
         self.pq_m = args.segment
+
         # self.item_emb = torch.nn.Embedding(
         #     self.item_num, args.hidden_units, padding_idx=0)
         # self.item_emb.weight.data[0, :] = 0
+
         self.item_emb = QREmbeddingBag(
             num_categories=self.item_num,
             embedding_dim=args.hidden_units,

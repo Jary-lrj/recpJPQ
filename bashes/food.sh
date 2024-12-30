@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # 定义模型列表
-# models=("GRU4Rec" "NARM" "STAMP" "SASRec" "SRGNN")
-models=("SASRec")
+models=("GRU4Rec")
 
 # 切换到上一级目录
 cd ..
@@ -17,7 +16,7 @@ for model in "${models[@]}"; do
         --dataset=food_seg4 \
         --segment=4 \
         --hidden_units=200 \
-        --type=DPQ \
+        --type=cage \
         --num_epochs=200 \
         --train_dir=default \
         --maxlen=50 \

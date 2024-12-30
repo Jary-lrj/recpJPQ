@@ -15,7 +15,8 @@ class Cage(CageModule):
             dim,
             entries=None,  # ex. [100, 10]
             alpha=1,  # alpha
-            beta=0.25,  # beta
+            beta=0.25,  # beta,
+            vocab_size=1
     ):
         super().__init__()
 
@@ -24,7 +25,7 @@ class Cage(CageModule):
             entries = [int(x) for x in entries.split('-')]
 
         self.embed_dim = dim
-        self.vocab_size = 10366
+        self.vocab_size = vocab_size
         self.num_layers = -1  # type: int
         self.cluster_sizes = entries  # type: list[int]
         self.weighted_add = alpha
@@ -79,12 +80,13 @@ class Cage(CageModule):
     ) -> CageQuantization:
         compare_embeds = embeds  # for loss calculation
 
-        shape = embeds.shape
-        embeds = embeds.view(-1, self.embed_dim)  # [B * ..., D]
+        shape = embeds.shape  # 原始形状
+        embeds = embeds.view(-1, self.embed_dim)  # 展平为二维张量 [B * ..., D]
         qembeds = []
         qindices = []
 
         for i in range(self.num_layers):
+            is_zero_vector = (embeds == 0).all(dim=-1, keepdim=True)
             dist = torch.cdist(embeds, self.codebooks[i].weight, p=2)
             indices = torch.argmin(dist, dim=-1).unsqueeze(1)
             placeholder = torch.zeros(
@@ -92,10 +94,15 @@ class Cage(CageModule):
             placeholder.scatter_(1, indices, 1)
             inner_embeds = torch.matmul(
                 placeholder, self.codebooks[i].weight).view(embeds.shape)
+            inner_embeds = torch.where(
+                is_zero_vector, torch.zeros_like(inner_embeds), inner_embeds)
+
             qembeds.append(inner_embeds.view(shape))
             qindices.append(indices.view(shape[:-1]))
-            if self.layer_connect:
-                embeds = inner_embeds
+
+        # 更新嵌入层
+        if self.layer_connect:
+            embeds = inner_embeds
 
         output = CageQuantization(qembeds, indices=qindices)
         embeds = embeds.view(shape)
@@ -113,7 +120,7 @@ class Cage(CageModule):
                 compare_embeds = qembeds[i]
         output.loss = q_loss
 
-        return output
+        return output.mean, output.loss
 
     def classify(
             self,
