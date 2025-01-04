@@ -13,7 +13,7 @@ class ItemCodeJPQ(torch.nn.Module):
         self.embedding_size = embedding_size
         self.sub_embedding_size = embedding_size // self.pq_m  # 48 / 8
         self.item_code_bytes = embedding_size // self.sub_embedding_size  # 8
-        self.vals_per_dim = 256
+        self.vals_per_dim = 128
         self.base_type = torch.int
         self.item_codes = torch.zeros(
             size=(
@@ -31,6 +31,36 @@ class ItemCodeJPQ(torch.nn.Module):
         self.sequence_length = sequence_length
         self.num_items = num_items
 
+    def assign(self, train_users, pretrain_emb_path=None):
+        train_items = set(item for items in train_users.values()
+                          for item in items)
+        all_item_embeddings = torch.randn(
+            self.num_items, self.embedding_size, device=self.device
+        )
+
+        if pretrain_emb_path is None:
+            user_item_pairs = [
+                (user - 1, item) for user, items in train_users.items() for item in items
+            ]
+            user_item_pairs = np.array(user_item_pairs, dtype=np.int64)
+            rows, cols = user_item_pairs[:, 0], user_item_pairs[:, 1]
+            vals = np.ones(len(rows), dtype=np.float32)
+            from scipy.sparse import coo_matrix
+            from scipy.sparse.linalg import svds
+            sparse_matr = coo_matrix((vals, (rows, cols)), shape=(
+                len(train_users), self.num_items))
+            U, S, Vt = svds(sparse_matr, k=self.embedding_size)
+
+            item_embeddings = torch.tensor(Vt.T, device=self.device)
+            all_item_embeddings = item_embeddings
+            all_item_embeddings[0, :] = 0.0
+        else:
+            item_embeddings = torch.load(pretrain_emb_path).to(self.device)
+            for item in train_items:
+                all_item_embeddings[item] = item_embeddings[item]
+
+        return all_item_embeddings
+
     def assign_codes_recJPQ(self, train_users):
         code = self.item_codes_strategy.assign(train_users)
         self.item_codes = code
@@ -41,7 +71,7 @@ class ItemCodeJPQ(torch.nn.Module):
         for i in range(reduced_dim):
             subspace_data = item_embeddings[:, i].cpu(
             ).numpy().reshape(-1, 1)  # Shape: (num_items, 1)
-            n_bins = 256  # Ensure bins don't exceed data points
+            n_bins = self.vals_per_dim  # Ensure bins don't exceed data points
             kbin_discretizer = KBinsDiscretizer(
                 n_bins=n_bins, encode="ordinal", strategy="quantile")
             cluster_labels = (

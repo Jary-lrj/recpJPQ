@@ -6,6 +6,10 @@ import numpy as np
 from collections import defaultdict
 from multiprocessing import Process, Queue
 
+np.random.seed(42)  # 固定NumPy随机数种子
+random.seed(42)     # 固定Python随机数种子
+torch.manual_seed(42)  # 固定PyTorch随机数种子
+
 
 def build_index(dataset_name):
 

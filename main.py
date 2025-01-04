@@ -3,11 +3,12 @@ import time
 import torch
 import argparse
 
-from model2 import SASRec, GRU4Rec, NARM, Caser, STAMP
+from model import SASRec, GRU4Rec, NARM, Caser, STAMP
 from utils import *
 from test_embedding import visualize_embedding, plot_loss_curve
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 
 
 def str2bool(s):
@@ -76,6 +77,7 @@ if __name__ == "__main__":
     sampler = WarpSampler(
         user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3
     )
+
     if args.model == "SASRec":
         model = SASRec(usernum, itemnum, args).to(args.device)
     elif args.model == "GRU4Rec":
@@ -118,11 +120,11 @@ if __name__ == "__main__":
     #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     # preprocessing for ours
-    # codebook_t0 = time.time()
-    # model.recat_build_codebook()
-    # codebook_t1 = time.time()
-    # f.write(
-    #     f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
+    codebook_t0 = time.time()
+    model.recat_build_codebook(user_train)
+    codebook_t1 = time.time()
+    f.write(
+        f"Time taken to build codebook: {codebook_t1 - codebook_t0:.2f} seconds\n")
 
     model.train()  # enable model training
 
@@ -183,7 +185,7 @@ if __name__ == "__main__":
             indices = np.where(pos != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
-            for param in model.item_emb.parameters():
+            for param in model.item_code.parameters():
                 loss += args.l2_emb * torch.norm(param)
             loss.backward()
             adam_optimizer.step()
@@ -231,10 +233,23 @@ if __name__ == "__main__":
             model.train()
 
         if epoch == args.num_epochs:
+            max_NDCG5 = max(NDCG5) if NDCG5 else None  # 如果列表为空，则返回None
+            max_NDCG10 = max(NDCG10) if NDCG10 else None
+            max_HR5 = max(HR5) if HR5 else None
+            max_HR10 = max(HR10) if HR10 else None
+            avg_NDCG5 = sum(NDCG5) / len(NDCG5) if NDCG5 else None
+            avg_NDCG10 = sum(NDCG10) / len(NDCG10) if NDCG10 else None
+            avg_HR5 = sum(HR5) / len(HR5) if HR5 else None
+            avg_HR10 = sum(HR10) / len(HR10) if HR10 else None
+
             f.write(
-                f"Average NDCG@5, HR@5: {sum(NDCG5) / len(NDCG5):.4f}, {sum(HR5) / len(HR5):.4f}\n")
+                f"Max NDCG@5, HR@5, NDCG@10, HR@10: {max_NDCG5:.4f}, {max_HR5:.4f}, {max_NDCG10:.4f}, {max_HR10:.4f}\n")
             f.write(
-                f"Average NDCG@10, HR@10: {sum(NDCG10) / len(NDCG10):.4f}, {sum(HR10) / len(HR10):.4f}\n")
+                f"Average NDCG@5, HR@5: {avg_NDCG5:.4f}, {avg_HR5:.4f}\n")
+            f.write(
+                f"Average NDCG@10, HR@10: {avg_NDCG10:.4f}, {avg_HR10:.4f}\n")
+            f.write(
+                f"Final NDCG@5, HR@5, NDCG@10, HR@10: {(max_NDCG5+avg_NDCG5)/2:.4f}, {(max_HR5+avg_HR5)/2:.4f}, {(max_NDCG10+avg_NDCG10)/2:.4f}, {(max_HR10+avg_HR10)/2:.4f} \n")
             f.write(f"Time Per Epoch: {T / epoch:.2f} seconds\n")
             folder = log_dir
             fname = "final_{}.type={}.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}_{}.pth"
