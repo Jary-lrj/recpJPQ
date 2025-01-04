@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 定义模型列表
-models=("NARM")
+models=("GRU4Rec" "NARM" "Caser" "STAMP" "SASRec")
 
 # 定义数据集列表及其对应的dropout率
 declare -A datasets_dropout=(
@@ -14,7 +14,7 @@ declare -A datasets_dropout=(
 cd ..
 
 # 设置CUDA_VISIBLE_DEVICES环境变量
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4
+export CUDA_VISIBLE_DEVICES=1,2,3,4
 
 # 循环遍历每个模型和数据集，并执行命令
 
@@ -27,7 +27,7 @@ for dataset in "${!datasets_dropout[@]}"; do
             --dataset="$dataset" \
             --segment=4 \
             --hidden_units=200 \
-            --type=cage \
+            --type=normal \
             --num_epochs=200 \
             --train_dir=default \
             --maxlen=50 \
